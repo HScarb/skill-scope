@@ -1,0 +1,85 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - errorlint
+    - gocritic
+    - misspell
+    - revive
+    - unparam
+  settings:
+    depguard:
+      rules:
+        # No package may depend on the CLI layer or the launch use-case layer.
+        no-upward-imports:
+          list-mode: lax
+          files:
+            - "!**/cmd/skope/**"
+            - "!**/internal/cli/**"
+            - "!**/internal/launch/**"
+          deny:
+            - pkg: "github.com/scarb/skope/internal/cli"
+              desc: "only cmd/skope may import internal/cli (spec §11.1)"
+            - pkg: "github.com/scarb/skope/internal/launch"
+              desc: "only internal/cli may import internal/launch (spec §11.1)"
+        # Adapter implementations must not import each other.
+        no-cross-adapter-claude:
+          list-mode: lax
+          files:
+            - "**/internal/agent/claude/**"
+          deny:
+            - pkg: "github.com/scarb/skope/internal/agent/codex"
+              desc: "adapters must not import each other (spec §11.1)"
+            - pkg: "github.com/scarb/skope/internal/agent/opencode"
+              desc: "adapters must not import each other (spec §11.1)"
+        no-cross-adapter-codex:
+          list-mode: lax
+          files:
+            - "**/internal/agent/codex/**"
+          deny:
+            - pkg: "github.com/scarb/skope/internal/agent/claude"
+              desc: "adapters must not import each other (spec §11.1)"
+            - pkg: "github.com/scarb/skope/internal/agent/opencode"
+              desc: "adapters must not import each other (spec §11.1)"
+        no-cross-adapter-opencode:
+          list-mode: lax
+          files:
+            - "**/internal/agent/opencode/**"
+          deny:
+            - pkg: "github.com/scarb/skope/internal/agent/claude"
+              desc: "adapters must not import each other (spec §11.1)"
+            - pkg: "github.com/scarb/skope/internal/agent/codex"
+              desc: "adapters must not import each other (spec §11.1)"
+        # Leaf packages must not import the agent abstraction.
+        leaves-no-agent:
+          list-mode: lax
+          files:
+            - "**/internal/session/**"
+            - "**/internal/projection/**"
+            - "**/internal/handoff/**"
+            - "**/internal/proc/**"
+            - "**/internal/termsafe/**"
+            - "**/internal/host/**"
+          deny:
+            - pkg: "github.com/scarb/skope/internal/agent"
+              desc: "leaf packages must not import internal/agent (spec §11.1)"
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
