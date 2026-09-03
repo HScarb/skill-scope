@@ -1,0 +1,10 @@
+/skope
+/skope.exe
+/dist/
+/.worktrees/
+/.idea/
+/.vscode/
+*.test
+*.out
+/.claude/
+/coverage.txt
