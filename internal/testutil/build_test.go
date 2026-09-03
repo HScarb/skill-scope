@@ -2,6 +2,7 @@ package testutil_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +31,7 @@ func TestBuildFakeAgentProducesRunnableBinary(t *testing.T) {
 	err := cmd.Run()
 
 	var exitErr *exec.ExitError
-	if !errorsAs(err, &exitErr) || exitErr.ExitCode() != 3 {
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 3 {
 		t.Fatalf("expected exit code 3, got err=%v", err)
 	}
 
@@ -68,16 +69,4 @@ func TestBuildFakeAgentReturnsSamePathWithinOneTest(t *testing.T) {
 	if first != second {
 		t.Errorf("expected cached path, got %q then %q", first, second)
 	}
-}
-
-func errorsAs(err error, target **exec.ExitError) bool {
-	if err == nil {
-		return false
-	}
-	e, ok := err.(*exec.ExitError)
-	if !ok {
-		return false
-	}
-	*target = e
-	return true
 }
