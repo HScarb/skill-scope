@@ -3,26 +3,40 @@
 package cli
 
 import (
+	"context"
+	"fmt"
 	"io"
 
+	"github.com/scarb/skope/internal/agent"
+	"github.com/scarb/skope/internal/agent/claude"
 	"github.com/scarb/skope/internal/config"
+	"github.com/scarb/skope/internal/handoff"
+	"github.com/scarb/skope/internal/host"
+	"github.com/scarb/skope/internal/launch"
+	"github.com/scarb/skope/internal/session"
+	"github.com/scarb/skope/internal/skill"
 	"github.com/spf13/cobra"
 )
 
 type Application struct {
 	LoadSkillSets func() (path string, sets config.SkillSets, err error)
+	RunLaunch     func(context.Context, launch.Request, launch.Reporter) error
+}
+
+type dependencies struct {
+	snapshot func() (host.Env, error)
 }
 
 // Execute runs skope with the given arguments and returns the process
 // exit code. It never calls os.Exit so tests can drive it directly.
 func Execute(args []string, stdout, stderr io.Writer, version string) int {
-	return (Application{LoadSkillSets: loadSkillSets}).Execute(args, stdout, stderr, version)
+	return productionApplication().Execute(args, stdout, stderr, version)
 }
 
 // Execute runs this application with the given arguments and returns the
 // process exit code.
 func (a Application) Execute(args []string, stdout, stderr io.Writer, version string) int {
-	root := newRootCmd(version, a.LoadSkillSets)
+	root := newRootCmd(version, a.LoadSkillSets, a.RunLaunch)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -33,13 +47,82 @@ func (a Application) Execute(args []string, stdout, stderr io.Writer, version st
 	return 0
 }
 
-func newRootCmd(version string, loadSkillSets listLoader) *cobra.Command {
+func newRootCmd(version string, loadSkillSets listLoader, runLaunch launchRunner) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "skope",
 		Short:         "Launch coding agents with a session-scoped skill whitelist",
 		SilenceUsage:  true,
 		SilenceErrors: false,
 	}
-	root.AddCommand(newListCmd(loadSkillSets), newVersionCmd(version))
+	root.SetUsageTemplate(rootUsageTemplate)
+	root.AddCommand(newLaunchCmd(skill.AgentClaude, runLaunch), newListCmd(loadSkillSets), newVersionCmd(version))
 	return root
+}
+
+const rootUsageTemplate = `Usage:{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
+
+Available Commands:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
+
+{{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
+
+Additional Commands:{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
+
+Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "{{.CommandPath}} help [command]" for more information about a command.{{end}}
+`
+
+func productionApplication() Application {
+	deps := dependencies{snapshot: host.Snapshot}
+	return Application{
+		LoadSkillSets: loadSkillSets,
+		RunLaunch:     deps.runLaunch,
+	}
+}
+
+func (d dependencies) runLaunch(ctx context.Context, request launch.Request, report launch.Reporter) error {
+	env, err := d.snapshot()
+	if err != nil {
+		return fmt.Errorf("snapshot host environment: %w", err)
+	}
+	skopeHome, err := config.ResolveHome(env)
+	if err != nil {
+		return fmt.Errorf("resolve skope home: %w", err)
+	}
+
+	fsys := host.OSFileSystem{}
+	scanner := skill.Scanner{FS: fsys}
+	adapter := claude.Adapter{Scanner: scanner, FS: fsys}
+	registry, err := agent.NewRegistry(adapter)
+	if err != nil {
+		return fmt.Errorf("register agent adapters: %w", err)
+	}
+	service := launch.Service{
+		Env:       env,
+		FS:        fsys,
+		SkopeHome: skopeHome,
+		Registry:  registry,
+		Resolver:  host.ExecutableResolver{},
+		Sessions:  session.NewManager(skopeHome),
+		Handoff:   handoff.Handoff{},
+	}
+	return service.Run(ctx, request, report)
 }
