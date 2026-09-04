@@ -64,7 +64,7 @@ func locationID(location Location) string {
 	if scope == "" {
 		return name
 	}
-	return strings.ReplaceAll(scope, "/", ":") + ":" + name
+	return scope + ":" + name
 }
 
 func commandName(discoveryPath string) string {

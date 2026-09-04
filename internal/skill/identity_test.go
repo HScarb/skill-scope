@@ -47,6 +47,59 @@ func TestBuildMergesSkillAndCommandWithSameID(t *testing.T) {
 	}
 }
 
+func TestBuildPreservesSlashesInProjectScope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		location skill.Location
+		wantID   string
+	}{
+		{
+			name: "slash scope",
+			location: skill.Location{
+				Kind:          skill.KindSkill,
+				DiscoveryPath: "/repo/apps/web/.claude/skills/local/SKILL.md",
+				Scope:         "apps/web",
+			},
+			wantID: "apps/web:local",
+		},
+		{
+			name: "backslash scope",
+			location: skill.Location{
+				Kind:          skill.KindSkill,
+				DiscoveryPath: "/repo/apps/web/.claude/skills/local/SKILL.md",
+				Scope:         `apps\web`,
+			},
+			wantID: "apps/web:local",
+		},
+		{
+			name: "nested command",
+			location: skill.Location{
+				Kind:          skill.KindCommand,
+				DiscoveryPath: "/repo/apps/web/.claude/commands/git/commit.md",
+				Scope:         "apps/web",
+			},
+			wantID: "apps/web:git:commit",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			skills, _ := skill.Build([]skill.Location{test.location})
+
+			if len(skills) != 1 {
+				t.Fatalf("Build() returned %d skills, want 1", len(skills))
+			}
+			if got := skills[0].ID; got != test.wantID {
+				t.Errorf("Build() skill ID = %q, want %q", got, test.wantID)
+			}
+		})
+	}
+}
+
 func TestBuildDeduplicatesOnlySourceAndDiscoveryPath(t *testing.T) {
 	t.Parallel()
 
