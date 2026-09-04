@@ -636,7 +636,8 @@ config       → host
 
 | Phase | 交付 | 前置验证（§7.5） | 依赖 |
 |---|---|---|---|
-| 1 | Claude 最小闭环（Unix） | 无 | 无 |
+| 0 | 项目准备：模块、cobra 根命令与 `version`、fakeagent 与 `BuildFakeAgent`、golangci-lint v2 与 depguard 分层规则、三平台 CI、goreleaser 骨架、`docs/verification.md` 模板 | 无 | 无 |
+| 1 | Claude 最小闭环（Unix） | 无 | Phase 0 |
 | 2 | Claude 补全 | 第 3、10 条 | Phase 1 |
 | 3 | Codex adapter | 第 1、6、9 条 | Phase 2 |
 | 4 | OpenCode adapter | 第 2、4、5、7、8 条 | Phase 2 |
@@ -658,8 +659,8 @@ Phase 3 与 Phase 4 互不依赖，可并行。
 - `internal/host`：环境快照。
 - `internal/handoff`：Unix `syscall.Exec`。
 - `internal/launch`：§8.1 流程编排，本期跳过投影相关步骤。
-- `internal/cli`：`skope claude` 的 `-s`/`--set`（含 `none`、重复报错、逗号并集）、`--dry-run`、`--` 透传切分、非 TTY 未传 `-s` 报错、§6.1 argv 顺序；`list`；`version`。
-- `internal/testutil/fakeagent` 与 `internal/cli` 集成测试骨架（§12），本期起每期沿用。
+- `internal/cli`：`skope claude` 的 `-s`/`--set`（含 `none`、重复报错、逗号并集）、`--dry-run`、`--` 透传切分、非 TTY 未传 `-s` 报错、§6.1 argv 顺序；`list`。
+- `internal/cli` 集成测试（§12），使用 Phase 0 提供的 `testutil.BuildFakeAgent`，本期起每期沿用。
 
 不含：plugin、bundled、投影、TTY 选择器、§6.2 冲突参数检测、§6.6 完整摘要（只打印 native/missing 计数）、§9 输出安全。
 
@@ -734,7 +735,7 @@ Phase 3 与 Phase 4 互不依赖，可并行。
 
 ### 14.7 分期规则
 
-- 每期内按 TDD 推进，`gofmt`、`go vet`、`go test -race ./...` 全绿才进入下一期。
+- 每期内按 TDD 推进，`make check`（`gofmt`、`go vet`、`golangci-lint`、`go test ./...`、`go build`）本地全绿，且 CI 三平台通过（ubuntu/macos 带 `-race`，Windows 不带，因 `-race` 依赖 cgo）才进入下一期。
 - Phase 1 结束后类型冻结。Phase 3、4 是唯一允许调整 `Adapter` 接口的节点，调整必须先修订 §7 再改代码，并回归 Claude adapter 的测试。
 - 各期范围只增不减：某项在本期被砍，必须挪入后续某期，不得从本文档消失。
 - `docs/verification.md` 随各期累积：每期的真实 agent 手工验证结论追加进去，不另建文件。
