@@ -5,8 +5,7 @@ Session-scoped skill whitelisting for `claude`, `codex` and `opencode`.
 skills, plugins and bundled skills visible, without touching the agent's
 persistent configuration.
 
-**Status:** pre-alpha. Phase 0 local acceptance is complete; required
-three-platform CI confirmation is pending. No agent launching exists yet.
+**Status:** pre-alpha. Phase 0 is complete; no agent launching exists yet.
 See the phase plan in the design spec, §14.
 
 ## Design

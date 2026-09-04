@@ -10,7 +10,7 @@
 
 **Spec 对应：** `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §2、§11、§12、§14.7。spec §14 没有单列 Phase 0；本 plan 定义它为「Phase 1 之前的项目准备」，Task 13 会把这一定义回写到 spec。
 
-**执行状态：** 2026-09-04 本地验收通过；按 spec §14.7，Phase 0 最终关闭仍待 GitHub Actions 三平台通过。
+**执行状态：** 2026-09-04 本地验收与 GitHub Actions 三平台 CI 全部通过，Phase 0 已关闭。
 
 ---
 
@@ -1470,7 +1470,7 @@ Expected: 19 个 tracked 文件，与本 plan「文件结构」及 Task 1-13 的
 Run: `cd D:/workspace/vibe/skill-scope && git log --format='%s'`
 Expected: 所有提交主题符合 Conventional Commits。修复与验证提交会改变总数，因此不锁定固定数量。
 
-本地收尾已完成，证据记入 `docs/verification.md`。GitHub Actions 三平台通过后，Phase 0 才满足 spec §14.7 的最终关闭条件。
+收尾验证已完成，证据记入 `docs/verification.md`。Phase 0 满足 spec §14.7，可以进入 Phase 1。
 
 ---
 

@@ -114,7 +114,7 @@
 
 - 日期：2026-09-04
 - 环境：Windows 11，Go 1.27.1 windows/amd64
-- 状态：本地通过；GitHub Actions 三平台待确认
+- 状态：通过
 - 命令：`make check`
 - 观察：`gofmt`、`go vet`、golangci-lint v2.13.2（0 issues）、`go test ./...`、`go build` 全部退出 0
 - 命令：`go test -short ./...`
@@ -124,8 +124,9 @@
 - 命令：从当前 HEAD 创建干净 clone，执行 `go vet ./...`、`go test ./...`、`go build -o skope.exe ./cmd/skope`、`.\skope.exe version`
 - 观察：全部退出 0；版本输出 `skope dev`
 - 命令：在一次性 clone 中把 `origin` 设为 `https://github.com/scarb/skope.git`，执行 `go run github.com/goreleaser/goreleaser/v2@v2.18.0 check`
-- 观察：输出 `1 configuration file(s) validated`。GoReleaser 需要可识别的 SCM remote；当前仓库无 remote 时会报 `no remote configured to list refs from`
-- 待确认：为仓库配置真实 SCM remote 后触发 `.github/workflows/ci.yml`，确认 Ubuntu/macOS 的 `go test -race`、Windows 的 `go test` 及 Ubuntu lint job 全部通过
+- 观察：输出 `1 configuration file(s) validated`。工作仓库的 `origin` 已配置为 `https://github.com/HScarb/skill-scope.git`
+- CI：首次 run `33880125575` 暴露 Windows PowerShell 将未引用的 `-coverprofile=coverage.txt` 拆成两个参数；提交 `8604312` 为该参数加引号并升级 `checkout`、`setup-go` 到 v7
+- CI：最终 [run 33880710693](https://github.com/HScarb/skill-scope/actions/runs/33880710693) 全部通过：Ubuntu/macOS 执行 `go test -race`，Windows 执行 `go test` 与 build，Ubuntu lint 使用 `golangci-lint-action@v9`；无 Node 20 弃用警告
 
 ### Phase 1
 
