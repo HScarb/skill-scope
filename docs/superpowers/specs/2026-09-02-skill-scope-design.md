@@ -611,7 +611,7 @@ config       → host
   - `internal/handoff`：Windows `.cmd` 垫片解析（fixture 垫片文件）、嵌套 Job 降级判定；Unix exec 路径在集成测试中覆盖。
 - 集成测试（`internal/cli`）：`TestMain` 把 `internal/testutil/fakeagent` 编译到临时目录，配置 `command` 指向它，端到端验证启动、argv 顺序、透传、退出码、会话目录创建与清理。Windows 上额外验证 `.cmd` 垫片解析与 Job Object 继承。
 - 真实 agent 验证与手工验收：§7.5 各条结论与各期的手工验证结论写入 `docs/verification.md`，记录 agent 版本，agent 大版本升级后重跑。
-- 目标覆盖率 80%，CI 运行 `go test -race ./...`、`go vet`、`golangci-lint`。
+- 目标覆盖率 80%，CI 运行 `go test -race ./...`（ubuntu/macos）、`go vet`、`golangci-lint`。
 
 ## 13. 已知边界
 
@@ -636,7 +636,7 @@ config       → host
 
 | Phase | 交付 | 前置验证（§7.5） | 依赖 |
 |---|---|---|---|
-| 0 | 项目准备：模块、cobra 根命令与 `version`、fakeagent 与 `BuildFakeAgent`、golangci-lint v2 与 depguard 分层规则、三平台 CI、goreleaser 骨架、`docs/verification.md` 模板 | 无 | 无 |
+| 0 | 项目准备：模块、cobra 根命令与 `version`、fakeagent 与 `BuildFakeAgent`、golangci-lint v2 与 depguard 分层规则、三平台 CI、goreleaser 骨架、Makefile（`make check`）、`docs/verification.md` 模板 | 无 | 无 |
 | 1 | Claude 最小闭环（Unix） | 无 | Phase 0 |
 | 2 | Claude 补全 | 第 3、10 条 | Phase 1 |
 | 3 | Codex adapter | 第 1、6、9 条 | Phase 2 |
@@ -729,7 +729,7 @@ Phase 3 与 Phase 4 互不依赖，可并行。
 
 - `internal/handoff` Windows 文件（§8.4）：Job Object（`KILL_ON_JOB_CLOSE`、嵌套 Job 降级告警）、Ctrl 处理、退出码透传与退出后清理、`.cmd` 垫片解析与 `cmd.exe /c` 回退。
 - §8.2 Windows 权限说明；`doctor` 的垫片真实目标展示。
-- goreleaser 配置、Homebrew tap、Scoop bucket；CI 三平台 `go test -race ./...`、`go vet`、golangci-lint。
+- goreleaser 配置、Homebrew tap、Scoop bucket；CI 三平台（`-race` 仅 ubuntu/macos，见 §14.7）`go test`、`go vet`、golangci-lint。
 
 退出标准：Windows 集成测试（垫片解析、Job 继承）通过；三平台 release 产物可安装运行。
 
