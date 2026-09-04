@@ -21,8 +21,8 @@ var (
 
 // BuildFakeAgent compiles internal/testutil/fakeagent into a temporary
 // directory and returns the executable path. The build runs at most
-// once per test binary; the directory is removed when the process exits
-// via the returned cleanup registered on the first caller.
+// once per test binary. Because tests share it, the directory remains in
+// os.TempDir for the host's normal temporary-file cleanup.
 func BuildFakeAgent(tb testing.TB) string {
 	tb.Helper()
 

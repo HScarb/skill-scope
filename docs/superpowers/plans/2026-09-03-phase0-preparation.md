@@ -10,6 +10,8 @@
 
 **Spec 对应：** `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §2、§11、§12、§14.7。spec §14 没有单列 Phase 0；本 plan 定义它为「Phase 1 之前的项目准备」，Task 13 会把这一定义回写到 spec。
 
+**执行状态：** 2026-09-04 本地验收通过；按 spec §14.7，Phase 0 最终关闭仍待 GitHub Actions 三平台通过。
+
 ---
 
 ## 前置事实（执行前必读）
@@ -716,8 +718,8 @@ var (
 
 // BuildFakeAgent compiles internal/testutil/fakeagent into a temporary
 // directory and returns the executable path. The build runs at most
-// once per test binary; the directory is removed when the process exits
-// via the returned cleanup registered on the first caller.
+// once per test binary. Because tests share it, the directory remains in
+// os.TempDir for the host's normal temporary-file cleanup.
 func BuildFakeAgent(tb testing.TB) string {
 	tb.Helper()
 
@@ -760,7 +762,7 @@ func (e *buildError) Error() string {
 func (e *buildError) Unwrap() error { return e.err }
 ```
 
-说明：编译产物放在 `os.MkdirTemp` 而不是 `tb.TempDir()`，因为 `sync.Once` 让多个测试共享同一路径，`tb.TempDir()` 会在第一个测试结束时删掉它。临时目录由操作系统回收，不在测试内清理。
+说明：编译产物放在 `os.MkdirTemp` 而不是 `tb.TempDir()`，因为 `sync.Once` 让多个测试共享同一路径，`tb.TempDir()` 会在第一个测试结束时删掉它。目录留在 `os.TempDir()`，交给主机的例行临时文件清理。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -1070,6 +1072,8 @@ release:
 ```
 
 - [ ] **Step 2: 校验配置**
+
+前置：`goreleaser check` 需要 `origin` 是可识别的 GitHub、GitLab 或 Gitea URL。仓库尚未配置真实 remote 时，在一次性 clone 中设置预期 SCM URL 后验证，不要给工作仓库写入猜测的 remote。
 
 Run:
 ```bash
@@ -1447,55 +1451,26 @@ cd D:/workspace/vibe/skill-scope && git add docs/superpowers/specs/2026-09-02-sk
 
 ### Task 14: Phase 0 收尾验证
 
-**Files:** 无新增。
+**Files:** Modify: 本 plan、`docs/verification.md`。
 
-- [ ] **Step 1: 干净 clone 验证**
+- [x] **Step 1: 干净 clone 验证**
 
 从零 clone 到临时目录，确认没有依赖本地未提交状态：
 
-```bash
-rm -rf "$TEMP/skope-clone" && git clone -q D:/workspace/vibe/skill-scope "$TEMP/skope-clone" && cd "$TEMP/skope-clone" && go vet ./... && go test ./... && go build -o skope.exe ./cmd/skope && ./skope.exe version && cd - >/dev/null && rm -rf "$TEMP/skope-clone"
-```
+Run: `git clone` 到一次性目录后依次执行 `go vet ./...`、`go test ./...`、`go build -o skope.exe ./cmd/skope`、`./skope.exe version`。
 Expected: 各包 `ok`，最后一行 `skope dev`。
 
-- [ ] **Step 2: 确认最终文件树与本 plan「文件结构」一致**
+- [x] **Step 2: 确认最终文件树与本 plan「文件结构」一致**
 
-Run:
-```bash
-cd D:/workspace/vibe/skill-scope && git ls-files
-```
-Expected 恰好为：
-```
-.github/workflows/ci.yml
-.gitignore
-.golangci.yml
-.goreleaser.yaml
-Makefile
-README.md
-cmd/skope/main.go
-docs/superpowers/plans/2026-09-03-phase0-preparation.md
-docs/superpowers/specs/2026-09-02-skill-scope-design.md
-docs/verification.md
-go.mod
-go.sum
-internal/cli/root.go
-internal/cli/root_test.go
-internal/cli/version.go
-internal/cli/version_test.go
-internal/testutil/build.go
-internal/testutil/build_test.go
-internal/testutil/fakeagent/main.go
-```
+Run: `cd D:/workspace/vibe/skill-scope && git ls-files`
+Expected: 19 个 tracked 文件，与本 plan「文件结构」及 Task 1-13 的 Files 清单一致。
 
-- [ ] **Step 3: 确认提交历史**
+- [x] **Step 3: 确认提交历史**
 
-Run:
-```bash
-cd D:/workspace/vibe/skill-scope && git log --oneline
-```
-Expected 12 条提交，从 `docs: add design spec and phase 0 plan` 到 `docs: define Phase 0 in spec and relax -race to CI-only`，全部符合 conventional commits。
+Run: `cd D:/workspace/vibe/skill-scope && git log --format='%s'`
+Expected: 所有提交主题符合 Conventional Commits。修复与验证提交会改变总数，因此不锁定固定数量。
 
-Phase 0 完成。Phase 1 的 plan 可以直接从 `internal/host`、`internal/skill` 的第一个失败测试开始。
+本地收尾已完成，证据记入 `docs/verification.md`。GitHub Actions 三平台通过后，Phase 0 才满足 spec §14.7 的最终关闭条件。
 
 ---
 
