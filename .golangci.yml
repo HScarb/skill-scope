@@ -17,15 +17,19 @@ linters:
     depguard:
       rules:
         # No package may depend on the CLI layer or the launch use-case layer.
-        no-upward-imports:
+        no-cli-imports:
           list-mode: lax
           files:
             - "!**/cmd/skope/**"
             - "!**/internal/cli/**"
-            - "!**/internal/launch/**"
           deny:
             - pkg: "github.com/scarb/skope/internal/cli"
               desc: "only cmd/skope may import internal/cli (spec §11.1)"
+        no-launch-imports:
+          list-mode: lax
+          files:
+            - "!**/internal/cli/**"
+          deny:
             - pkg: "github.com/scarb/skope/internal/launch"
               desc: "only internal/cli may import internal/launch (spec §11.1)"
         # Adapter implementations must not import each other.
@@ -70,6 +74,7 @@ linters:
             - pkg: "github.com/scarb/skope/internal/agent"
               desc: "leaf packages must not import internal/agent (spec §11.1)"
     revive:
+      enable-default-rules: true
       rules:
         - name: exported
           disabled: true
