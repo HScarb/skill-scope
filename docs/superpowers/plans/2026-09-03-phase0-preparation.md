@@ -981,7 +981,7 @@ jobs:
           if [ -n "$out" ]; then
             echo "gofmt needed on:"; echo "$out"; exit 1
           fi
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
 ```
