@@ -440,6 +440,7 @@ func skillSetOrder(data []byte) ([]string, error) {
 			seen[name] = true
 			order = append(order, name)
 		}
+	}
 	for parser.NextExpression() {
 		expr := parser.Expression()
 		if expr.Kind != unstable.Table && expr.Kind != unstable.KeyValue {
