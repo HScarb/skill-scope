@@ -117,7 +117,7 @@ type Location struct {
   - 同 ID 多入口且 `RealPath` 不同：内容可能不一致。
   - `FrontmatterName` 与目录名不一致。
   - 不同 ID 在同一 agent 上有效名相同（如根级 `verify` 与 `apps/web:verify` 在 OpenCode 中都叫 `verify`）：允许其一即允许两者，agent 自身按其规则取其一。
-- **Location 优先级**：项目级高于全局级；同级按 `claude > agents > codex > opencode > opencode-paths`；plugin 级最低。
+- **Location 优先级**：层级按 `project > global > admin > plugin`；同级按 `claude > agents > codex > opencode > opencode-paths`。admin `/etc/codex` 低于用户全局配置，但仍是 agent 原生入口，优先于不可跨 agent 投影的 plugin。若 Phase 3 的真实 Codex 验证推翻该顺序，必须先修订本文档再调整实现。
 
 ### 4.4 可见性与投影判定
 
