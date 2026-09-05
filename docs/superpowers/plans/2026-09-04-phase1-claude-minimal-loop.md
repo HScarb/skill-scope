@@ -12,7 +12,21 @@
 
 **执行技能：** 每个 Task 按 `@superpowers:test-driven-development` 的红—绿—重构顺序执行；Task 16 按 `@superpowers:verification-before-completion` 收尾。不要提前使用 Phase 2 的 projection、proc、termsafe 或 plugin 实现。
 
-**执行状态：** 未开始。
+**执行状态：** 2026-09-05，Task 1–16 实现及验收已完成；本地质量门禁、84.4% 覆盖率、最新代码三平台 CI、真实 Claude 白名单及会话保留/回收验证通过。最终干净 clone 已验证，清理因工具策略拒绝而保留；完成状态的环境范围见实施记录与 `docs/verification.md`。
+
+## 实施记录（2026-09-05）
+
+本节记录实施后的实际行为；下文保留原始计划，差异以源码与本节为准。
+
+- Task 1–15 完成并经过逐任务规格及质量审查。最终审查补修了嵌套 command ID（`e7f9602`）和 `[skillsets]` 相对 TOML 键的有序加载（`7ff2dff`），均先复现失败再修复。
+- Task 9 使用 Go 1.24 `os.Root` 锚定读写和删除，保存私有 final identity，严格校验 owner。Linux/Darwin 发布使用目录 FD 相对路径的原子 no-replace；Windows handle-relative 发布与 Junction 实测留到 Phase 6。
+- Task 11 的 Reporter 只收到脱离生命周期的 Session 展示快照；清理失败以 `errors.Join` 保留原错误和清理错误。
+- Task 14 的帮助入口为 `skope help claude`，`claude --help` 透传。未指定 set 时明确提示 `-s <name>` 或 `-s none`。
+- Go directive 规范为 `1.24.0`；`.gitattributes` 仅固定 Claude settings golden 为 LF。macOS 与 Windows fixture 通过真实文件身份/canonical path 比较，避免 `/private/var`、短路径和 CRLF 差异。
+- Windows 删除失败测试使用不共享删除的原生句柄，并在创建文件后重设目录 mtime；这是测试修复，未改变生产回收逻辑。
+- 真实验证经用户授权继承本地中转站配置。实际构建 `170c857`，Linux skope 在 WSL ext4 上 exec 临时桥接脚本，再调用 Windows Claude 2.1.259；桥接只转换 settings 路径。allowed/blocked 控制组、白名单拒绝、会话保留及回收均通过。该证据不宣称使用了原生 Linux Claude；原生 Unix handoff 由三平台 CI 中的 fake-agent E2E 覆盖。
+- 临时 fixture、输出和验证二进制已清理；凭据仅通过进程环境传递。具体命令、观察和 CI 链接见 `docs/verification.md`。
+- 干净 clone 已通过 `make check` 与 dry-run；其递归删除被工具策略拒绝，保留在系统临时目录，不含用户认证配置。
 
 ---
 
@@ -114,7 +128,7 @@ internal/
 
 `host.Env` 是唯一读取 `os.Environ`、`os.UserHomeDir`、`os.Getwd` 的位置。构造后不暴露内部 map，避免调用者就地修改环境快照。
 
-- [ ] **Step 1: 添加固定版本依赖**
+- [x] **Step 1: 添加固定版本依赖**
 
 Run:
 
@@ -125,7 +139,7 @@ go get github.com/pelletier/go-toml/v2@v2.4.3 gopkg.in/yaml.v3@v3.0.1 golang.org
 
 Expected: `go.mod` 出现三个 direct dependency；`golang.org/x/sys` 选择 v0.41.0，因为它的 `go.mod` 仍声明 Go 1.24，不能升级到要求 Go 1.25 的 v0.47.0。
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 Create `internal/host/env_test.go`，覆盖以下完整契约：
 
@@ -164,13 +178,13 @@ func TestWithReturnsCopy(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: 运行测试确认失败**
+- [x] **Step 3: 运行测试确认失败**
 
 Run: `go test ./internal/host -run 'Test(NewEnv|With)' -v`
 
 Expected: FAIL，原因是 `internal/host` 或对应标识符尚不存在。
 
-- [ ] **Step 4: 实现最小不可变环境快照**
+- [x] **Step 4: 实现最小不可变环境快照**
 
 Create `internal/host/env.go`，对外 API 固定为：
 
@@ -211,13 +225,13 @@ func (OSFileSystem) EvalSymlinks(name string) (string, error)
 
 每个方法只把 slash 路径经 `filepath.FromSlash` 转换后委托给 `os`/`filepath`；`EvalSymlinks` 返回 `filepath.ToSlash` 后的路径。
 
-- [ ] **Step 5: 运行测试与格式化**
+- [x] **Step 5: 运行测试与格式化**
 
 Run: `gofmt -w internal/host && go test ./internal/host -v`
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add go.mod go.sum internal/host
@@ -236,7 +250,7 @@ git commit -m "feat: add immutable host environment snapshot"
 - Create: `internal/config/config.go`
 - Create: `internal/config/config_test.go`
 
-- [ ] **Step 1: 写 `SKOPE_HOME` 失败测试**
+- [x] **Step 1: 写 `SKOPE_HOME` 失败测试**
 
 `internal/config/home_test.go` 使用 `t.TempDir()` 生成跨平台绝对路径，覆盖：未设置时为 `<home>/.skope`；trim 后空值回退默认；`~`、`~/x`、`~\x` 展开；绝对 override 接受；相对路径拒绝；`~other/x` 拒绝。
 
@@ -250,7 +264,7 @@ Run: `go test ./internal/config -run TestResolveHome -v`
 
 Expected: FAIL，`ResolveHome` 未定义。
 
-- [ ] **Step 2: 实现 home 与路径化错误**
+- [x] **Step 2: 实现 home 与路径化错误**
 
 Create `internal/config/errors.go`：
 
@@ -271,7 +285,7 @@ func (e *PathError) Unwrap() error
 
 Create `internal/config/home.go` 实现 `ResolveHome`。override 先 `strings.TrimSpace`；只展开恰好 `~` 或以 `~/`、`~\` 开头的形式；最后 `filepath.Clean` 并用 `filepath.IsAbs` 校验。读取过程不得创建目录。
 
-- [ ] **Step 3: 写 `config.toml` table test**
+- [x] **Step 3: 写 `config.toml` table test**
 
 `internal/config/config_test.go` 使用实现 `ReadFile(string)` 的内存 FS，至少包含：
 
@@ -307,13 +321,13 @@ type ReadFileFS interface {
 func Load(fsys ReadFileFS, path string) (Config, error)
 ```
 
-- [ ] **Step 4: 运行测试确认失败**
+- [x] **Step 4: 运行测试确认失败**
 
 Run: `go test ./internal/config -run 'TestLoad' -v`
 
 Expected: FAIL，loader 未定义。
 
-- [ ] **Step 5: 实现严格解码**
+- [x] **Step 5: 实现严格解码**
 
 Create `internal/config/config.go`。文件结构用私有 DTO，`Version *int` 用于区分缺失与零值：
 
@@ -343,7 +357,7 @@ type agentFile struct {
 4. 校验 version 必填且等于 1。
 5. 把三个非 nil agent DTO 映射到固定字符串 key `claude`/`codex`/`opencode`；复制 `Args`。config 不 import skill/agent，launch 用 `string(req.Agent)` 查询。
 
-- [ ] **Step 6: 运行测试并提交**
+- [x] **Step 6: 运行测试并提交**
 
 Run: `gofmt -w internal/config && go test ./internal/config -v`
 
@@ -364,7 +378,7 @@ git commit -m "feat: load skope home and agent config"
 - Create: `internal/config/skillsets_test.go`
 - Create: `internal/config/validate.go`
 
-- [ ] **Step 1: 写 loader 与校验的失败测试**
+- [x] **Step 1: 写 loader 与校验的失败测试**
 
 `internal/config/skillsets_test.go` 必须 table-drive spec §5.3 的每条规则：
 
@@ -405,13 +419,13 @@ func (s SkillSets) Merge(names []string) (Selection, error)
 func (s SkillSets) Names() []string
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `go test ./internal/config -run 'Test(LoadSkillSets|ParseSelection|Merge)' -v`
 
 Expected: FAIL。
 
-- [ ] **Step 3: 实现 DTO 与严格校验**
+- [x] **Step 3: 实现 DTO 与严格校验**
 
 `skillSetFile.Skills` 使用 `*[]string` 区分“缺失”和“空数组”；`Bundled *bool` 区分缺省。`pluginsFile` 只声明 Claude/Codex 两个字段，让 strict decoder 自然拒绝 OpenCode 和其他键。
 
@@ -425,7 +439,7 @@ func validatePluginID(id string) error
 
 set 名正则固定为 `^[A-Za-z0-9._-]+$`，另行拒绝前导 `-`、保留名 `none` 和逗号。数组按第一次出现顺序去重检测，发现重复即报错，不静默合并。
 
-- [ ] **Step 4: 用 AST 提取配置顺序**
+- [x] **Step 4: 用 AST 提取配置顺序**
 
 在 `skillsets.go` 实现：
 
@@ -478,7 +492,7 @@ func skillSetOrder(data []byte) ([]string, error) {
 
 严格 decoder 负责语义；AST 只负责顺序。上述逻辑同时处理普通 table、dotted key 与 `skillsets = { ... }` inline table。解码 map 中存在但 AST 未捕获的项属于内部不变量错误，必须返回错误，不能按 map 随机顺序补齐。
 
-- [ ] **Step 5: 实现选择表达式和并集**
+- [x] **Step 5: 实现选择表达式和并集**
 
 `ParseSelection`：按逗号切分、trim、拒绝空项；`none` 只能单独出现；普通名字保持输入顺序，重复名字保留第一次。`Merge`：
 
@@ -487,7 +501,7 @@ func skillSetOrder(data []byte) ([]string, error) {
 - bundled 用 OR；display name 用 `+` 连接解析后的 set 名。
 - `none` 不交给 `Merge`，由 launch 提前分支。
 
-- [ ] **Step 6: 运行测试、全包回归并提交**
+- [x] **Step 6: 运行测试、全包回归并提交**
 
 Run:
 
@@ -515,11 +529,11 @@ git commit -m "feat: load and merge ordered skill sets"
 - Create: `internal/skill/identity_test.go`
 - Modify: `docs/superpowers/specs/2026-09-02-skill-scope-design.md`（补齐 admin priority）
 
-- [ ] **Step 1: 先补齐 spec 的 admin priority**
+- [x] **Step 1: 先补齐 spec 的 admin priority**
 
 spec §4.3 当前只定义 project/global、source 与 plugin 最低，没有定义 `LevelAdmin`。在开始 comparator 测试前，把 Location 优先级明确为：`project > global > admin > plugin`；理由是 admin `/etc/codex` 低于用户全局配置，但仍是 agent 原生入口，优先于不可跨 agent 投影的 plugin。若 Phase 3 的真实 Codex 验证推翻该顺序，必须先修订 spec 再调整实现。
 
-- [ ] **Step 2: 写冻结类型**
+- [x] **Step 2: 写冻结类型**
 
 Create `internal/skill/skill.go`，一次性定义完整冻结类型，不提交半成品文件。字段与 spec §4.2 一一对应，不增加展示字符串：
 
@@ -590,7 +604,7 @@ type Collision struct {
 }
 ```
 
-- [ ] **Step 3: 写身份测试**
+- [x] **Step 3: 写身份测试**
 
 `identity_test.go` 覆盖：
 
@@ -608,7 +622,7 @@ API：
 func Build(locations []Location) ([]Skill, []Collision)
 ```
 
-- [ ] **Step 4: 确认失败并实现最小逻辑**
+- [x] **Step 4: 确认失败并实现最小逻辑**
 
 Run: `go test ./internal/skill -run TestBuild -v`
 
@@ -616,7 +630,7 @@ Expected: FAIL。
 
 实现时先深拷贝每个 `Names` map，再按 ID 分组；去重使用 `string(Source)+"\x00"+DiscoveryPath`。`Skill` 按 ID 排序，`Locations` 按上述优先级排序。碰撞也稳定排序，保证后续 CLI/golden 不抖动。
 
-- [ ] **Step 5: 运行测试并提交**
+- [x] **Step 5: 运行测试并提交**
 
 Run: `gofmt -w internal/skill && go test ./internal/skill -v`
 
@@ -638,11 +652,11 @@ git commit -m "feat: define skill identity and collision model"
 - Create: `internal/skill/scan_test.go`
 - Modify: `docs/superpowers/specs/2026-09-02-skill-scope-design.md`（补齐 malformed frontmatter 错误策略）
 
-- [ ] **Step 1: 先补齐 malformed frontmatter 策略**
+- [x] **Step 1: 先补齐 malformed frontmatter 策略**
 
 在 spec §4.3/§10 明确：有 frontmatter 起始分隔符但 YAML 非法、缺少结束分隔符或 `name` 不是字符串时 fail-closed，错误包含 `SKILL.md` discovery path；完全没有 frontmatter 或合法 frontmatter 缺少 `name` 时 `FrontmatterName` 为空。选择 fail-closed，因为 Codex/OpenCode 的有效名依赖该字段，静默回退会让白名单命中错误对象；Phase 1 先实现同一身份规则，避免后续改变扫描语义。
 
-- [ ] **Step 2: 写扫描文件系统 seam 与结果类型**
+- [x] **Step 2: 写扫描文件系统 seam 与结果类型**
 
 `scan.go` 定义：
 
@@ -682,7 +696,7 @@ type scanRoot struct {
 
 Phase 1 只生成 `SourceClaude` 的 global/project roots；后续 phase 追加表行。
 
-- [ ] **Step 3: 写 MapFS 扫描失败测试**
+- [x] **Step 3: 写 MapFS 扫描失败测试**
 
 测试包装 `fstest.MapFS` 以满足 `FileSystem`；普通 fixture 的 `EvalSymlinks` 返回清理后的原路径。覆盖：
 
@@ -696,19 +710,19 @@ Phase 1 只生成 `SourceClaude` 的 global/project roots；后续 phase 追加�
 - YAML frontmatter `name` 提取；缺少 frontmatter/name 时为空；malformed YAML 返回扫描错误。
 - `Names[AgentClaude]` 等于 ID，其他 agent key 不存在。
 
-- [ ] **Step 4: 运行测试确认失败**
+- [x] **Step 4: 运行测试确认失败**
 
 Run: `go test ./internal/skill -run TestScanner -v`
 
 Expected: FAIL。
 
-- [ ] **Step 5: 实现 scope 与 git 根查找**
+- [x] **Step 5: 实现 scope 与 git 根查找**
 
 路径内部统一使用 slash 形式：`filepath.ToSlash` 输入，`path.Join` 组合；`host.OSFileSystem` 在边界转回 native path。向上查找 `.git`：从 cwd 开始，遇到首个存在的 `.git`（文件或目录）即为 root；stat 只有 `fs.ErrNotExist` 可继续，其他错误 fail-closed；到卷根仍未找到则 `ProjectRoot=cwd` 且只返回 cwd 一层。
 
 项目 scope 是当前扫描层相对 project root 的 slash 路径；root scope 为空。skill ID 是 `scope+":"+basename`（scope 空时只用 basename）；command ID 是 scope、command 相对 commands root 的目录和无扩展名 basename 用 `:` 拼接。
 
-- [ ] **Step 6: 实现遍历与 frontmatter**
+- [x] **Step 6: 实现遍历与 frontmatter**
 
 skill root：`ReadDir` 一次；普通目录或 symlink entry 都只尝试 `<entry>/SKILL.md`。普通文件忽略。读取成功后：
 
@@ -722,11 +736,11 @@ command root：深度优先、目录项按 name 排序；symlink 目录、`.git`
 
 任何 root 的第一次 `ReadDir` 返回 `fs.ErrNotExist` 都跳过；root 已进入后所有 I/O 错误都包装路径并返回。
 
-- [ ] **Step 7: 实现真实 symlink 测试**
+- [x] **Step 7: 实现真实 symlink 测试**
 
 追加使用 `t.TempDir()`、`os.Symlink`、`host.OSFileSystem{}` 的黑盒测试；Windows 创建 symlink 权限不足时只 skip symlink case，其他扫描测试不能 skip。覆盖两个 fixture：同一真实目录通过两个 discovery entry 出现时，Build 保留两个 location 且 RealPath 相同；`SKILL.md` 文件自身是 symlink 时，RealPath 等于目标文件完整路径。
 
-- [ ] **Step 8: 回归并提交**
+- [x] **Step 8: 回归并提交**
 
 Run:
 
@@ -752,7 +766,7 @@ git commit -m "feat: scan Claude skills and legacy commands"
 - Create: `internal/skill/resolve.go`
 - Create: `internal/skill/resolve_test.go`
 
-- [ ] **Step 1: 定义可扩展但不越界的解析类型**
+- [x] **Step 1: 定义可扩展但不越界的解析类型**
 
 ```go
 type ResolutionState string
@@ -785,7 +799,7 @@ func (r Resolved) AllowedNames() []string
 
 `Location` 指针仅给 Phase 2 projected 分支使用；Phase 1 native/missing 都为 nil。这里不实现 unavailable/projected 的判定。
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 覆盖：选中 ID 存在且有两个 Claude-visible locations 时 state=native、Names 稳定去重；未知 ID 为 missing；输出按 selection 首次出现顺序且去重；输入不变；AllowedNames 只汇总 native。不要构造“ID 存在但目标 agent 不可见”的输入：该情况属于 Phase 2 的 projected/unavailable 判定，不得在 `ResolveNative` 中误标为 missing。
 
@@ -793,7 +807,7 @@ Run: `go test ./internal/skill -run TestResolveNative -v`
 
 Expected: FAIL。
 
-- [ ] **Step 3: 实现、回归、提交**
+- [x] **Step 3: 实现、回归、提交**
 
 实现只按 `Skill.ID` 建索引；Names 排序并去重。不要在这里读取 frontmatter、路径或配置。
 
@@ -821,7 +835,7 @@ git commit -m "feat: resolve native and missing skills"
 - Create: `internal/session/session.go`（最终路径 value object；Task 9 增加生命周期）
 - Create: `internal/session/session_test.go`
 
-- [ ] **Step 1: 写 Session 最终路径失败测试**
+- [x] **Step 1: 写 Session 最终路径失败测试**
 
 Create `internal/session/session_test.go`，使用 `package session_test`：构造 `Session{Root: finalRoot, Agent: skill.AgentClaude}`，断言 `AgentPath("settings.json")` 等于 `<finalRoot>/claude/settings.json`；断言传入的 parts slice 不被修改。该测试锁定 adapter 在 staging publish 前就必须拿到 final path 的契约。
 
@@ -829,7 +843,7 @@ Run: `go test ./internal/session -run TestSessionAgentPath -v`
 
 Expected: FAIL，`internal/session` 或 `Session` 尚不存在。
 
-- [ ] **Step 2: 实现 Session 最终路径 value object**
+- [x] **Step 2: 实现 Session 最终路径 value object**
 
 Create `internal/session/session.go`，让 Agent 接口可以编译，并让本步骤形成独立的红—绿提交单元：
 
@@ -849,7 +863,7 @@ func (s *Session) AgentPath(parts ...string) string {
 
 Task 9 会增加私有 staging/published 状态和行为，但不改变已经测试的 final Root/AgentPath 语义。
 
-- [ ] **Step 3: 写 spec §7 的冻结类型**
+- [x] **Step 3: 写 spec §7 的冻结类型**
 
 Create `internal/agent/agent.go`：
 
@@ -903,7 +917,7 @@ func (r Registry) Get(name skill.Agent) (Adapter, bool)
 
 `registry_test.go` 用两个 fake adapter 覆盖成功查找、缺失与重复 Name 报错；不得提供全局 singleton 或 `init()` 注册。
 
-- [ ] **Step 4: 写 Claude inventory 失败测试**
+- [x] **Step 4: 写 Claude inventory 失败测试**
 
 构造 fake scanner 与内存 ReadFileFS，覆盖：
 
@@ -934,7 +948,7 @@ type Adapter struct {
 
 不要复用 `config.ReadFileFS` 的名字来换取一行代码：Claude adapter 不应 import `internal/config`。两个包各自在消费处定义相同的最小结构接口，`host.OSFileSystem` 同时满足二者。
 
-- [ ] **Step 5: 确认失败并实现**
+- [x] **Step 5: 确认失败并实现**
 
 Run: `go test ./internal/agent/claude -run TestInventory -v`
 
@@ -942,7 +956,7 @@ Expected: FAIL。
 
 `settingsFile` 只声明 `SkillOverrides map[string]string`，未知 JSON 字段允许，因为 Claude settings 有大量与 skope 无关的合法键。使用 `json.Decoder` 解码并确认 EOF，拒绝尾随第二个 JSON 值。SkillNames 排序去重。
 
-- [ ] **Step 6: 运行测试并提交**
+- [x] **Step 6: 运行测试并提交**
 
 Run:
 
@@ -968,7 +982,7 @@ git commit -m "feat: define agent contract and Claude inventory"
 - Create: `internal/agent/claude/settings_test.go`
 - Create: `internal/agent/claude/testdata/settings.golden.json`
 
-- [ ] **Step 1: 写 golden 失败测试**
+- [x] **Step 1: 写 golden 失败测试**
 
 fixture inventory 包含扫描名 `alpha`、`beta`、`legacy` 和 settings 旧键 `stale`；resolved 只允许 `beta`、`legacy`。期望：
 
@@ -985,7 +999,7 @@ fixture inventory 包含扫描名 `alpha`、`beta`、`legacy` 和 settings 旧�
 
 文件必须以换行结尾。另测：空全集仍输出空 object；Plan 不修改 inventory/resolved；Plan 的 `Env` 是非 nil 空 map；Files 只有一个 `<session>/claude/settings.json`、mode `0o600`；ControlArgs 恰为 `--settings`, absolutePath。
 
-- [ ] **Step 2: 确认失败并实现**
+- [x] **Step 2: 确认失败并实现**
 
 Run: `go test ./internal/agent/claude -run TestPlan -v`
 
@@ -1000,7 +1014,7 @@ Expected: FAIL。
 
 本 Task 使用 Task 7 已建立的 `session.Session.AgentPath`；Task 9 只补行为，不改变生成的最终 settings path。
 
-- [ ] **Step 3: 运行测试并提交**
+- [x] **Step 3: 运行测试并提交**
 
 Run: `gofmt -w internal/agent internal/session && go test ./internal/agent/... -v`
 
@@ -1028,7 +1042,7 @@ git commit -m "feat: plan Claude skill override settings"
 - Create: `internal/session/process_linux_test.go`
 - Modify: `internal/session/session_test.go`
 
-- [ ] **Step 1: 写 Session Manager 的失败测试**
+- [x] **Step 1: 写 Session Manager 的失败测试**
 
 以 fake clock、固定 random reader、fake `ProcessInspector` 覆盖：
 
@@ -1085,13 +1099,13 @@ func (s *Session) Abort() error
 
 `session` 不能 import `agent`，所以 `File` 属于 session；`launch` 从 `agent.PlannedFile` 显式转换。最终依赖保持 `agent -> session`，而非双向。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `go test ./internal/session -v`
 
 Expected: FAIL。
 
-- [ ] **Step 3: 实现 owner 与 staging/publish**
+- [x] **Step 3: 实现 owner 与 staging/publish**
 
 `owner.json` schema 固定：
 
@@ -1109,7 +1123,7 @@ type Owner struct {
 
 `WriteFiles` 要求每个 Path 已在 Session.Root 下；用 `filepath.Rel` 后拒绝 `.`、`..` 或以 `..+separator` 开头，再把该 relative path 接到私有 stagingRoot。Phase 1 adapter 传绝对 final path。忽略 PlannedFile 自带 mode 的其他值，目录固定 0700、文件固定 0600，以 spec 权限为准。`Abort` 在 publish 前删 staging，publish 后只删经过 sessions-root 子目录校验的 final Root。
 
-- [ ] **Step 4: 实现平台 ProcessInspector**
+- [x] **Step 4: 实现平台 ProcessInspector**
 
 `process_linux.go`（`//go:build linux`）把 OS 读取与 stat 解析分开，提供可供黑盒 fixture 驱动的生产 seam：
 
@@ -1133,11 +1147,11 @@ func (p LinuxProcessInspector) StartToken(pid int) (string, error)
 
 `process_live_unix_test.go`（`//go:build linux || darwin`）用 `os.Getpid()` 断言当前进程 token 非空；再启动并等待一个立即退出的子进程，以该已退出 PID 断言 `errors.Is(err, ErrProcessNotFound)`，不使用可能碰巧存在的硬编码 PID。`process_linux_test.go`（`//go:build linux`、`package session_test`）用 fake ReadFileFS 驱动 `LinuxProcessInspector.StartToken`，覆盖带空格/右括号的进程名、字段不足和 `fs.ErrNotExist`。
 
-- [ ] **Step 5: 实现 fail-safe 回收**
+- [x] **Step 5: 实现 fail-safe 回收**
 
 owner 可解析时：`StartToken` 返回 not found 或 token 不同才删除；返回其他错误只 warning 并保留。owner 不存在/损坏按目录 mtime 的一小时规则处理。所有删除目标都必须先 `filepath.Rel(sessionsRoot, target)` 验证是单层子目录，禁止递归删除 root 或计算后未验证的路径。
 
-- [ ] **Step 6: 运行单测与提交**
+- [x] **Step 6: 运行单测与提交**
 
 Run:
 
@@ -1163,7 +1177,7 @@ git commit -m "feat: manage session staging and stale cleanup"
 - Create: `internal/handoff/handoff_unix.go`
 - Create: `internal/handoff/handoff_windows.go`
 
-- [ ] **Step 1: 定义消费方可注入的 concrete API**
+- [x] **Step 1: 定义消费方可注入的 concrete API**
 
 ```go
 package handoff
@@ -1188,7 +1202,7 @@ func (Handoff) Exec(executable string, args, env []string) error {
 
 `handoff_windows.go` 返回 `ErrUnsupported`。接口由消费方 `launch` 定义，handoff 包不定义多余 interface。
 
-- [ ] **Step 2: 交叉编译验证**
+- [x] **Step 2: 交叉编译验证**
 
 Run:
 
@@ -1201,7 +1215,7 @@ GOOS=windows GOARCH=amd64 go build ./internal/handoff
 
 Expected: native test 与三个交叉编译均退出 0；library package 的 `go build` 只写 Go build cache，不在仓库留下异平台 binary。不要在单元测试进程内直接调用成功的 `syscall.Exec`。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add internal/handoff
@@ -1218,7 +1232,7 @@ git commit -m "feat: add Unix agent handoff"
 - Create: `internal/launch/render.go`
 - Create: `internal/launch/launch_test.go`
 
-- [ ] **Step 1: 定义请求、结果与依赖接口**
+- [x] **Step 1: 定义请求、结果与依赖接口**
 
 `launch` 作为消费方定义接口：
 
@@ -1283,7 +1297,7 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error
 
 生产 registry 用 `map[skill.Agent]agent.Adapter` 的小 struct，在 CLI 显式构造，不用 `init()`。
 
-- [ ] **Step 2: 写记录型依赖的顺序测试**
+- [x] **Step 2: 写记录型依赖的顺序测试**
 
 `launch_test.go` 的 fakes 把调用名 append 到 `[]string`，分别断言：
 
@@ -1306,13 +1320,13 @@ resolve -> stage/preview -> adapter plan -> write -> publish -> handoff
 - reporter 在 handoff 前被调用一次；reporter 失败时不 handoff，并清理已 staging/published 的 session。
 - context cancellation 在每个外部步骤前检查。
 
-- [ ] **Step 3: 确认失败**
+- [x] **Step 3: 确认失败**
 
 Run: `go test ./internal/launch -v`
 
 Expected: FAIL。
 
-- [ ] **Step 4: 实现流程**
+- [x] **Step 4: 实现流程**
 
 `Run` 精确顺序：
 
@@ -1331,7 +1345,7 @@ Expected: FAIL。
 
 必须在 launch 内调用 reporter，因为成功的 Unix `syscall.Exec` 永不返回；如果 CLI 等 `Run` 返回后才渲染，真实启动永远看不到 summary。Reporter 只接收结构化 Result，launch 不拼用户文案。
 
-- [ ] **Step 5: Phase 1 最小 render 数据**
+- [x] **Step 5: Phase 1 最小 render 数据**
 
 `render.go` 只提供结构化摘要，CLI 再写文本：
 
@@ -1346,7 +1360,7 @@ func Summarize(resolved skill.Resolved) Summary
 
 本期不实现 §9.1 转义和完整 §6.6 plugin/bundled/projected 行。
 
-- [ ] **Step 6: 回归并提交**
+- [x] **Step 6: 回归并提交**
 
 Run:
 
@@ -1372,7 +1386,7 @@ git commit -m "feat: orchestrate the Phase 1 launch flow"
 - Create: `internal/cli/args.go`
 - Create: `internal/cli/args_test.go`
 
-- [ ] **Step 1: 写完整 table test**
+- [x] **Step 1: 写完整 table test**
 
 私有结果：
 
@@ -1405,7 +1419,7 @@ case：
 
 测试还断言输入 slice 不变。
 
-- [ ] **Step 2: 确认失败并实现单趟 parser**
+- [x] **Step 2: 确认失败并实现单趟 parser**
 
 Run: `go test ./internal/cli -run TestParseLaunchArgs -v`
 
@@ -1413,7 +1427,7 @@ Expected: FAIL。
 
 parser 只在遇到未知 token 或 `--` 之前识别 skope 参数。错误定义为类型化 sentinel/struct，用户文案在 launch command 拼。
 
-- [ ] **Step 3: 回归并提交**
+- [x] **Step 3: 回归并提交**
 
 Run: `gofmt -w internal/cli && go test ./internal/cli -run TestParseLaunchArgs -v`
 
@@ -1435,7 +1449,7 @@ git commit -m "feat: parse scoped agent launch arguments"
 - Modify: `internal/cli/root.go`
 - Modify: `internal/cli/root_test.go`
 
-- [ ] **Step 1: 写 handler 失败测试**
+- [x] **Step 1: 写 handler 失败测试**
 
 为了避免测试真实 home，命令内部使用闭包：
 
@@ -1469,7 +1483,7 @@ NAME  DESCRIPTION  SKILLS  CLAUDE PLUGINS  CODEX PLUGINS  BUNDLED
 
 用 `text/tabwriter`，测试断言字段而非空格数量；检查每次写入和 `Flush` 的 error，输出失败必须让命令返回 1。
 
-- [ ] **Step 2: 确认失败并实现**
+- [x] **Step 2: 确认失败并实现**
 
 Run: `go test ./internal/cli -run 'TestList|TestExecuteHelp' -v`
 
@@ -1477,7 +1491,7 @@ Expected: FAIL。
 
 生产 loader 每次命令运行时才 Snapshot/ResolveHome/LoadSkillSets；`--help` 不得读取 home 或配置。`list` 不读 `config.toml`，不创建目录。Application 的 nil loader 只允许 help/version 测试；执行 `list` 时必须返回明确的内部配置错误，不能 panic。
 
-- [ ] **Step 3: 回归并提交**
+- [x] **Step 3: 回归并提交**
 
 Run: `gofmt -w internal/cli && go test ./internal/cli -v`
 
@@ -1499,7 +1513,7 @@ git commit -m "feat: list configured skill sets"
 - Modify: `internal/cli/root_test.go`
 - Verify only: `cmd/skope/main.go`（Execute 外部签名不变，不应产生 diff）
 
-- [ ] **Step 1: 写命令层失败测试**
+- [x] **Step 1: 写命令层失败测试**
 
 `newLaunchCmd(agent, runner)` 接受：
 
@@ -1516,7 +1530,7 @@ type launchRunner func(context.Context, launch.Request, launch.Reporter) error
 - dry-run 输出 executable、最终 argv、`claude/settings.json` 相对路径与生成 JSON；不打印环境变量值（Phase 1 plan.Env 为空）。
 - `none` 输出 `Skillset [none] for claude` 和 no-isolation 标记，不输出 native/missing。
 
-- [ ] **Step 2: 确认失败并实现命令**
+- [x] **Step 2: 确认失败并实现命令**
 
 Run: `go test ./internal/cli -run TestClaudeCommand -v`
 
@@ -1524,7 +1538,7 @@ Expected: FAIL。
 
 渲染使用 `cmd.OutOrStdout()`；错误经 `RunE` 返回。Phase 1 尚未接 `termsafe`，测试不要塞控制字符并假装安全需求已满足。
 
-- [ ] **Step 3: 实现显式生产装配**
+- [x] **Step 3: 实现显式生产装配**
 
 `root.go` 增加私有 `dependencies`，默认构造顺序：
 
@@ -1552,7 +1566,7 @@ type Application struct {
 
 `Execute` 仍保持 Phase 0 的外部签名 `Execute(args []string, stdout, stderr io.Writer, version string) int`，因此 `cmd/skope/main.go` 原则上不改。生产 env/cwd 在 command 真正运行时 Snapshot；测试通过 `Application.Execute` 注入 runner/loader。
 
-- [ ] **Step 4: 根命令回归**
+- [x] **Step 4: 根命令回归**
 
 Run:
 
@@ -1565,7 +1579,7 @@ go run ./cmd/skope help claude
 
 Expected: root help 同时列出 `claude`、`list`、`version`；`help claude` 显示 skope launch usage。由于 `DisableFlagParsing=true`，`skope claude --help` 是 Claude passthrough 参数，不作为 skope 帮助入口。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add internal/cli internal/host
@@ -1582,7 +1596,7 @@ git commit -m "feat: expose the Claude launch command"
 - Modify: `internal/testutil/build_test.go`
 - Create: `internal/cli/integration_test.go`
 
-- [ ] **Step 1: 增加 skope 二进制构建辅助**
+- [x] **Step 1: 增加 skope 二进制构建辅助**
 
 在 `internal/testutil/build.go` 抽出私有 `buildPackage`，新增：
 
@@ -1592,7 +1606,7 @@ func BuildSkope(tb testing.TB) string
 
 它与 fake agent 分别 `sync.Once` 缓存，构建 `github.com/scarb/skope/cmd/skope`；Windows 后缀正确。`testing.Short()` 的调用方负责 skip。`build_test.go` 运行 `skope version` 断言 `skope dev`。
 
-- [ ] **Step 2: 写 Unix 端到端失败测试**
+- [x] **Step 2: 写 Unix 端到端失败测试**
 
 `integration_test.go` 使用 `package cli_test`；`testing.Short()` 或 `runtime.GOOS == "windows"` 时 skip。每个测试：
 
@@ -1613,7 +1627,7 @@ func BuildSkope(tb testing.TB) string
 - 第二次执行 `skope claude -s dev --dry-run` 会回收第一次已退出 PID 的 session，且不创建新 session、不改写 fake output。
 - `-s none` 即使 `skillsets.toml` 损坏也启动；argv 无 `--settings`，无新 session。
 
-- [ ] **Step 3: 写错误路径集成测试**
+- [x] **Step 3: 写错误路径集成测试**
 
 至少覆盖 spec §10 本期行：
 
@@ -1625,13 +1639,13 @@ func BuildSkope(tb testing.TB) string
 - missing ID 只告警，fake agent 仍启动。
 - dry-run 不启动 fake agent。
 
-- [ ] **Step 4: 运行红灯后实现缺口**
+- [x] **Step 4: 运行红灯后实现缺口**
 
 Run: `go test ./internal/cli -run Integration -v`
 
 Expected before fixes: FAIL；逐个修到 PASS。不得为通过测试放宽 fail-closed 规则。
 
-- [ ] **Step 5: 全量测试并提交**
+- [x] **Step 5: 全量测试并提交**
 
 Run:
 
@@ -1658,7 +1672,7 @@ git commit -m "test: cover the Claude launch end to end"
 - Modify: `docs/superpowers/plans/2026-09-04-phase1-claude-minimal-loop.md`（勾选执行项并记录偏差）
 - Modify: `README.md`（只更新 status 与可运行示例）
 
-- [ ] **Step 1: 类型冻结审计**
+- [x] **Step 1: 类型冻结审计**
 
 逐字段对照 spec：
 
@@ -1672,7 +1686,7 @@ git commit -m "test: cover the Claude launch end to end"
 
 若代码与 spec 不一致，先判断是实现错误还是设计必须变更；设计变更必须先修改 spec，再改代码并在 plan 记录原因。不得在 Task 16 静默改冻结类型。
 
-- [ ] **Step 2: 本地质量门禁**
+- [x] **Step 2: 本地质量门禁**
 
 Run:
 
@@ -1690,11 +1704,11 @@ Expected:
 - 输出总覆盖率并列出低覆盖业务函数；80% 是 spec §12 的项目目标，不是 Phase 1 的额外硬门禁。所有本期新增的分支型业务 seam 必须有行为测试；不得为追数字测试无业务逻辑的 `main`、平台声明或用排除规则掩盖缺口。
 - status 只有本 Task 预期文档改动与用户原有 `?? AGENTS.md`；不得 stage `AGENTS.md`、`coverage.txt`、binary 或 `dist/`。
 
-- [ ] **Step 3: CI 门禁**
+- [x] **Step 3: CI 门禁**
 
 推送 `codex/phase1-claude-minimal-loop`（或执行时约定的功能分支），创建/更新一个以 `main` 为 base 的 Pull Request，再确认 GitHub Actions：Ubuntu/macOS `go test -race`、Windows `go test`/build、Ubuntu lint 全部通过。当前 `.github/workflows/ci.yml` 的 `push` 只监听 `main`，功能分支必须通过 `pull_request` 事件触发；不要把“仅 push 功能分支”当作 CI 已执行。记录 run URL；失败先修复并重新执行本地门禁。
 
-- [ ] **Step 4: 真实 Claude 手工验证**
+- [x] **Step 4: 真实 Claude 手工验证**
 
 在 Linux/macOS（或 WSL 中安装的独立 Claude）使用一次性目录，绝不覆盖真实配置；当前 Windows 主机不能代替 Unix handoff 验收。fixture 至少有 `allowed` 与 `blocked` 两个 skill；复制用户当前 Claude settings 时只复制实验所需最小字段。执行：
 
@@ -1708,7 +1722,7 @@ SKOPE_HOME=<fixture>/skope \
 
 此手工项不是 spec §7.5 第 3/10 条；不要提前把那两条标成通过。它只证明 Phase 1 依赖的 `--settings` + `skillOverrides` 闭环。
 
-- [ ] **Step 5: 更新 README 与执行状态**
+- [x] **Step 5: 更新 README 与执行状态**
 
 README status 改为 Phase 1 complete；增加两条最小示例：
 
@@ -1719,14 +1733,14 @@ skope claude -s dev -- <claude args>
 
 明确写 Phase 1 仅支持 Linux/macOS Claude 原生 skills，plugin/bundled/projection/Windows handoff 尚未实现，避免用户把阶段性交付误解为完整 v1。
 
-- [ ] **Step 6: 提交收尾文档**
+- [x] **Step 6: 提交收尾文档**
 
 ```bash
 git add README.md docs/verification.md docs/superpowers/plans/2026-09-04-phase1-claude-minimal-loop.md
 git commit -m "docs: close phase 1 after Claude verification"
 ```
 
-- [ ] **Step 7: 最终干净 clone 验证**
+- [x] **Step 7: 最终干净 clone 验证**
 
 在 `mktemp -d` 创建的一次性 clone 中运行 `make check` 和一个 dry-run fixture；确认不依赖工作区未跟踪文件。验证完删除一次性 clone，不删除工作仓库或用户 home 下任何目录。
 
