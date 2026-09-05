@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/scarb/skope/internal/testutil"
 )
@@ -255,6 +257,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	}
 	for _, directory := range []string{
 		fixture.home,
+		filepath.Join(fixture.home, ".codex"),
 		fixture.skopeHome,
 		filepath.Join(fixture.claudeConfig, "skills", "allowed"),
 		filepath.Join(fixture.claudeConfig, "skills", "blocked"),
@@ -294,6 +297,7 @@ func (f *integrationFixture) run(t *testing.T, args []string, extraEnv map[strin
 	t.Helper()
 	overrides := map[string]string{
 		"HOME":                  f.home,
+		"USERPROFILE":           f.home,
 		"SKOPE_HOME":            f.skopeHome,
 		"CLAUDE_CONFIG_DIR":     f.claudeConfig,
 		"CODEX_HOME":            filepath.Join(f.home, ".codex"),
@@ -306,10 +310,15 @@ func (f *integrationFixture) run(t *testing.T, args []string, extraEnv map[strin
 	for key, value := range extraEnv {
 		overrides[key] = value
 	}
-	cmd := exec.Command(f.skope, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, f.skope, args...)
 	cmd.Dir = f.repo
 	cmd.Env = withEnv(os.Environ(), overrides)
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("skope exceeded integration deadline: %v\n%s", ctx.Err(), output)
+	}
 	if err == nil {
 		return string(output), 0
 	}
@@ -476,9 +485,10 @@ func TestIntegrationProbeUsesResolvedExecutableAndIndependentLog(t *testing.T) {
 		t.Fatalf("code=%d output=%s", code, output)
 	}
 	probe := readFakeRecord(t, filepath.Join(f.root, "probe.jsonl"))
-	if !reflect.DeepEqual(probe.Args, []string{"plugin", "list", "--json"}) || probe.Cwd != f.repo || probe.Env["CLAUDE_CONFIG_DIR"] != f.claudeConfig {
+	if !reflect.DeepEqual(probe.Args, []string{"plugin", "list", "--json"}) || probe.Env["CLAUDE_CONFIG_DIR"] != f.claudeConfig {
 		t.Fatalf("probe=%#v", probe)
 	}
+	assertSameFile(t, probe.Cwd, f.repo)
 	ordinary := readFakeRecord(t, f.fakeOutput)
 	if len(ordinary.Args) < 4 || !reflect.DeepEqual(ordinary.Args[:4], []string{"--from-config", "configured", "--model", "sonnet"}) {
 		t.Fatalf("ordinary args=%v", ordinary.Args)

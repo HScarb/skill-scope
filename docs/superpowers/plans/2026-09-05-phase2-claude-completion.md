@@ -1255,15 +1255,17 @@ Task 15 hidden completion 边界复查（2026-09-06）：
 
 - Modify: `internal/cli/integration_test.go`。
 - Create: `internal/cli/phase2_integration_test.go`。
+- Create: `internal/cli/phase2_application_test.go`。
+- Modify: `internal/cli/root_test.go`。
 - Modify if needed: `internal/testutil/probe_test.go`。
 
-- [ ] **Step 1: 写完整 Unix 启动 fixture**
+- [x] **Step 1: 写完整 Unix 启动 fixture**
 
 沿用 `newIntegrationFixture`、`withEnv`、BuildSkope、BuildFakeAgent。将 HOME/USERPROFILE/CLAUDE_CONFIG_DIR/CODEX_HOME/SKOPE_HOME 指向临时目录；探测日志与最终启动日志分开。生产命令不能探测到真正用户 plugin 或 skill。
 
 增加 native allowed/blocked、`.agents/skills/foreign`（含资源和空目录）、外链 rejected、unknown missing。plugin fixture 由 fake list 返回 Task 2 的已验证形状和当前临时安装路径；允许/禁止各一个，并加 settings-only stale。配置 args 和 user args 中分别放不同 marker。
 
-- [ ] **Step 2: 写失败测试并执行**
+- [x] **Step 2: 写失败测试并执行**
 
 Run: `go test ./internal/cli -run 'TestIntegrationPhaseTwo' -v`
 
@@ -1291,13 +1293,13 @@ Expected：新增集成断言先暴露装配缺口；如实现已满足，应记
 
 helper timeout/输出超限用 proc 单测完整证明；CLI 只需代表性错误传播，不为每条端到端测试等待完整 15 s。Unix 原生 handoff 集成继续在 Windows 跳过；新增 Windows dry-run/probe 集成使用真实 helper `.exe`，不得整体跳过 Phase 2 测试。
 
-- [ ] **Step 3: 修复实际缺口**
+- [x] **Step 3: 修复实际缺口**
 
 只修上述行为与既有行为的回归；更新旧 `assertSettings` 对 plugin/bundled 缺失的断言。`TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment` 改成「只显示环境变化」的测试名与断言。
 
 使用 `os.SameFile`/canonical path 比较 fixture 身份，保留 Phase 1 对 macOS 短路径和 Windows 大小写的修复。不得删除已有 Phase 1 错误测试来让全量测试通过。
 
-- [ ] **Step 4: 本地全量回归**
+- [x] **Step 4: 本地全量回归**
 
 ```sh
 go test ./...
@@ -1308,12 +1310,24 @@ go build ./...
 
 Expected：全部 PASS；Linux/macOS CI 另跑 race。长测试只执行一次完整验证，后续仅在改代码或新增失败时重跑相关检查。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/cli internal/testutil
 git commit -m "test: cover complete Claude isolation end to end"
 ```
+
+**Task 16 实际记录（2026-09-06）：**
+
+- 完整 fixture 的五个配置/用户目录均为临时目录，包含临时 `.git`、version 1 配置、两个真实临时 plugin 安装目录和 `known_marketplaces.json`。fakeagent 的 JSONL probe 与最终 OUT 分离；Windows 使用真实 `.exe` 与 Junction，WSL 使用真实 Linux 二进制与 symlink。
+- `TestIntegrationPhaseTwoDryRunInspectsCompleteInventoryWithoutWriting` 和 `TestIntegrationPhaseTwoLaunchCopiesCompleteTreeAndReapsExitedOwner` 组合验证 2 native / 1 projected / 2 unavailable / 1 missing、跨来源 content collision、missing plugin warning、2 allowed / 2 disabled 与 settings 精确交叉核对。真实 Unix exec 验证退出码 23、固定三 token probe 恰好一次、完整继承 env/cwd、最终 argv 顺序、资源/脚本/二进制/空目录、600/700、无 link、无 staging 路径及下一 dry-run 回收；dry-run 保留 OUT，不打印源正文或继承 AUTH_TOKEN。
+- `ConflictsStopBeforeProbeAndHideValues` 运行五参数 × config/user × token/等号共 20 个生产拒绝组合；`PluginFailuresDoNotCreateSessions` 运行非零、非法 JSON、非法字段与 suppressed 的 active/dry-run 共 8 个组合。none 在损坏 skillsets、损坏 foreign 文档和坏/suppressed probe 数据下旁路，坏 config 仍失败；默认 fixture 的缺失 `sample@market` 仍精确断言 allowed=1，未误改为空插件。
+- `ForeignOversizeAndFIFOAreUnavailable` 经过真实 foreign scan → resolve → dry-run：20 MiB+1 稀疏入口与 Unix FIFO 均 unavailable、不投影。`integrationFixture.run` 使用 `exec.CommandContext` 的 20 秒上界，FIFO 回归不会挂住整个 suite；底层实际读取上界继续由 `TestScanForeignGlobalsLimitsActualReads` 验证。
+- `CaseConflictPreservesFirstProjection` 用两个来源的 `Foo` / `foo` 验证 dry-run 与 Unix active 保留首项。新增 `phase2_application_test.go` 用真实 Service、Manager、Scanner、Inspector、Copier 与真实 fake probe 验证所有平台的受控 active；只替换 process token 和最终 handoff。预置目标通过 `WriteNew` 装饰器复现独占失败，立即检查原数据未截断，Application 返回 1、Abort 清 staging、不 handoff。返回式 fake handoff 的真实 Manager 句柄由测试 cleanup 关闭。
+- 已有证据关联：`TestProjectionWriteRejectsUnexpectedAliasWithoutPublishing` 覆盖路径别名；`TestCopyProjectionFailsOnExistingDestinationWithoutPublishing` 覆盖真实 Copier 的重复目标；`TestServiceCopiesRealTreeBeforePlanAndProtectsReportSnapshot` 覆盖真实文件 close/I/O 失败、未 report/handoff 和清理；`TestServiceProjectionFailuresAndCancellationStopAtBoundary` 保留原错误与 Abort 错误链。未重复这些底层矩阵。proc 的真实 helper 超时/输出上限和进程树矩阵继续运行，新增 Application 测试仅验证对应类型错误经真实 Service 传播为 CLI exit 1 且无会话。
+- 没有 production 修复。首轮测试修正两处假设：plugin skills 通过 `enabledPlugins` 控制，不写入普通 `skillOverrides`；`--dry-run` 必须位于首个透传参数之前。受控 fake handoff 返回时显式 cleanup 解决了测试句柄占用。以上均为测试修正；产品行为记录为已有实现直接绿，不宣称功能红—绿。旧 dry-run 单测改名并断言仅显示 `Plan.Env` 变化，旧 probe cwd 比较改为 `os.SameFile`。
+- Windows：`go test ./internal/cli -run TestIntegrationPhaseTwo -v -timeout 120s` PASS；新增 Application 局部 PASS；`go test ./...` PASS（CLI 19.255s）、`go test -short ./...`、`go vet ./...`、`go build ./...` 均退出 0。`golangci-lint v2.13.2 fmt ./internal/cli` 执行 gofmt/goimports，`run ./...` 最终 0 issues；唯一初次 lint 为测试冗余嵌入字段选择，修正后局部复验。
+- WSL Ubuntu：真实 `TestIntegrationPhaseTwo` 全矩阵 PASS（2.398s，含 FIFO/active）；随后 `go test -race ./internal/cli ./internal/launch ./internal/skill ./internal/projection ./internal/host ./internal/proc -timeout 180s` 全 PASS，CLI 6.173s。Windows 原生最终 handoff/process identity 仍为 Phase 6 边界，不把受控 active 说成原生支持；macOS 由后续 CI 验证。未调用 Claude API、未修改真实用户配置/冻结类型/AGENTS，未执行 Task 17 文档收尾或 push/merge。
 
 ### Task 17: 质量门禁、真实 Claude 验收与文档交付
 

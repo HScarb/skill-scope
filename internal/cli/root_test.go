@@ -292,7 +292,7 @@ func TestClaudeCommandReportsNoneWithoutInventorySummary(t *testing.T) {
 	}
 }
 
-func TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment(t *testing.T) {
+func TestClaudeCommandDryRunReportsArgvSessionFilesAndOnlyEnvironmentChanges(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "skope", "sessions", "preview")
 	settingsPath := filepath.Join(root, "claude", "settings.json")
 	settings := []byte("{\n  \"skillOverrides\": {\n    \"review\": \"on\"\n  }\n}\n")
@@ -303,7 +303,7 @@ func TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment(t *test
 		Resolved: skill.Resolved{Agent: skill.AgentClaude, Entries: []skill.Resolution{
 			{ID: "review", State: skill.StateNative},
 		}},
-		Plan: agent.LaunchPlan{Files: []agent.PlannedFile{{
+		Plan: agent.LaunchPlan{Env: map[string]string{"SKOPE_TEST_CHANGE": "changed"}, Files: []agent.PlannedFile{{
 			Path: settingsPath,
 			Data: settings,
 		}}},
@@ -327,6 +327,7 @@ func TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment(t *test
 		"claude/settings.json",
 		`"skillOverrides"`,
 		`"review": "on"`,
+		"Environment changes:\n  SKOPE_TEST_CHANGE=changed",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Errorf("output does not contain %q:\n%s", fragment, output)
