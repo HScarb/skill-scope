@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +20,51 @@ import (
 )
 
 type foreignScanFunc func(host.Env, int64) (skill.ScanResult, error)
+
+func TestServiceDryRunRejectsInvalidRealForeignDirectoryAndContinues(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot create a directory containing a colon; deterministic preparation test covers this platform")
+	}
+	t.Parallel()
+	f := newFixture()
+	home := t.TempDir()
+	for _, name := range []string{"foo:bar", "good"} {
+		dir := filepath.Join(home, ".agents", "skills", name)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("skill"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.service.Env = host.NewEnv(home, home, nil)
+	f.adapter.capabilities.Projection = true
+	f.fsys.files[f.skillSetsPath] = []byte("version=1\n[skillsets.dev]\nskills=['foo:bar','good','one','missing']\n")
+	f.service.Foreign = skill.Scanner{FS: host.OSFileSystem{}, RegularFiles: host.OSFileSystem{}}
+	f.service.Inspector = projection.Inspector{OpenRoot: func(dir string) (projection.Root, error) { return host.OpenProjectionRoot(dir) }}
+	var result Result
+	err := f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "dev", DryRun: true}, func(r Result) error {
+		result = r
+		return f.reporter(r)
+	})
+	if err != nil {
+		t.Fatalf("invalid foreign basename must not abort dry-run: %v", err)
+	}
+	if len(result.Resolved.Entries) != 4 {
+		t.Fatalf("resolved=%#v", result.Resolved)
+	}
+	for i, want := range []skill.ResolutionState{skill.StateUnavailable, skill.StateProjected, skill.StateNative, skill.StateMissing} {
+		if result.Resolved.Entries[i].State != want {
+			t.Fatalf("entry %d=%#v, want %s", i, result.Resolved.Entries[i], want)
+		}
+	}
+	if result.Resolved.Entries[0].Reason != skill.ReasonInvalidPath || len(result.ProjectionFiles) != 1 || result.ProjectionFiles[0].ID != "good" {
+		t.Fatalf("resolved=%#v projection files=%#v", result.Resolved, result.ProjectionFiles)
+	}
+	if !slices.Contains(f.events, "preview") || !slices.Contains(f.events, "report") || slices.Contains(f.events, "stage") || len(f.sessions.newFiles) != 0 {
+		t.Fatalf("dry-run events=%v new files=%v", f.events, f.sessions.newFiles)
+	}
+}
 
 func (f foreignScanFunc) ScanForeignGlobals(env host.Env, limit int64) (skill.ScanResult, error) {
 	return f(env, limit)

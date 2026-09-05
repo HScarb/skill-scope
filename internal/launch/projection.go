@@ -20,10 +20,14 @@ type projectionSink struct {
 }
 
 func newProjectionSink(sess *session.Session, manager SessionManager, name string) (*projectionSink, error) {
-	if name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, `/\:`) || !filepath.IsLocal(name) {
+	if !validProjectionDirectoryName(name) {
 		return nil, fmt.Errorf("invalid projection directory name %q", name)
 	}
 	return &projectionSink{sess: sess, manager: manager, prefix: sess.AgentPath("addDir", ".claude", "skills", name)}, nil
+}
+
+func validProjectionDirectoryName(name string) bool {
+	return name != "." && fs.ValidPath(name) && !strings.ContainsAny(name, `/\:`) && filepath.IsLocal(name)
 }
 
 func (s *projectionSink) target(relative string, directory bool) (string, error) {
@@ -113,6 +117,9 @@ func prepareProjection(ctx context.Context, target skill.Agent, selected []strin
 			return projectionRejectionReason(rejection.Reason)
 		}
 		name := filepath.Base(directory)
+		if !validProjectionDirectoryName(name) {
+			return skill.ReasonInvalidPath, nil
+		}
 		for _, existing := range occupied {
 			if projection.TargetNamesConflict(existing, name) {
 				return skill.ReasonTargetConflict, nil

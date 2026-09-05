@@ -472,6 +472,50 @@ func projectionLocation(source skill.Source, directory string) skill.Location {
 	return skill.Location{Kind: skill.KindSkill, Source: source, Level: skill.LevelGlobal, DiscoveryPath: directory + "/SKILL.md", RealPath: "/resolved/unrelated/SKILL.md"}
 }
 
+func TestPrepareProjectionRejectsInvalidDirectoryNamesBeforePlanning(t *testing.T) {
+	t.Parallel()
+	invalid := projectionLocation(skill.SourceAgents, "/first/foo:bar")
+	repeated := projectionLocation(skill.SourceCodex, "/second/foo:bar")
+	valid := projectionLocation(skill.SourceAgents, "/third/foo")
+	valid.Scope = "app"
+	inv := []skill.Skill{
+		{ID: "invalid", Locations: []skill.Location{invalid}},
+		{ID: "repeated", Locations: []skill.Location{repeated}},
+		{ID: "app:foo", Locations: []skill.Location{valid}},
+	}
+	calls := 0
+	got, err := prepareProjection(context.Background(), skill.AgentClaude, []string{"invalid", "repeated", "app:foo"}, inv, skill.ResolveOptions{Projection: true}, nil, projectionInspectorFunc(func(_ context.Context, dir string) (projection.Manifest, *projection.Rejection, error) {
+		calls++
+		return projection.Manifest{Root: dir, Files: []projection.File{{Path: "SKILL.md"}}}, nil, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range got.Resolved.Entries[:2] {
+		if entry.State != skill.StateUnavailable || entry.Reason != skill.ReasonInvalidPath {
+			t.Fatalf("invalid directory must be rejected without occupying its name: %#v", entry)
+		}
+	}
+	if calls != 3 || len(got.Skills) != 1 || got.Skills[0].ID != "app:foo" || got.Skills[0].Name != "foo" {
+		t.Fatalf("prepared=%#v calls=%d", got, calls)
+	}
+	if _, err := projectionFiles(&session.Session{Root: t.TempDir(), Agent: skill.AgentClaude}, got); err != nil {
+		t.Fatalf("planning received an invalid projection name: %v", err)
+	}
+}
+
+func TestPrepareProjectionPreservesIOErrorForInvalidDirectoryName(t *testing.T) {
+	t.Parallel()
+	ioErr := errors.New("source read failed")
+	inv := []skill.Skill{{ID: "foo:bar", Locations: []skill.Location{projectionLocation(skill.SourceAgents, "/foreign/foo:bar")}}}
+	_, err := prepareProjection(context.Background(), skill.AgentClaude, []string{"foo:bar"}, inv, skill.ResolveOptions{Projection: true}, nil, projectionInspectorFunc(func(context.Context, string) (projection.Manifest, *projection.Rejection, error) {
+		return projection.Manifest{}, nil, ioErr
+	}))
+	if !errors.Is(err, ioErr) {
+		t.Fatalf("error=%v, want inspection I/O error", err)
+	}
+}
+
 func TestPrepareProjectionSkipsScanRejectionsAndPreservesDiscoveryRoot(t *testing.T) {
 	t.Parallel()
 	for _, reason := range []skill.ResolutionReason{skill.ReasonSpecialFile, skill.ReasonLimitExceeded} {

@@ -1331,6 +1331,8 @@ git commit -m "test: cover complete Claude isolation end to end"
 
 ### Task 17: 质量门禁、真实 Claude 验收与文档交付
 
+**最终审查 focused 修复（2026-09-06）：** Unix 允许外来目录名 `foo:bar`，原 Inspector 只检查根内资源路径，prepareProjection 因而误报 projected；直到 Preview/Stage 后创建 projectionFiles/Sink 才报非法目录名并中止整个启动。先新增 Windows 可运行的准备测试，以及 WSL 真实 foreign scan → Inspector → Service dry-run 测试，两者分别以 projected 状态错误和 `invalid projection directory name "foo:bar"` 确认红灯。现从 newProjectionSink 提取相同的纯目录名判断，候选检查成功后、登记目标名之前返回 invalid-path，不占目标名，不保存 Manifest，其他选中 skill 正常继续；scope ID `app:foo` 仍使用合法 basename `foo`，Inspector I/O 错误优先传播，Sink/Session 安全规则保持原样。Windows launch/projection/session/skill 全量测试、WSL 同四包 `-race -count=1`、局部 golangci-lint v2.13.2（0 issues）、gofmt/goimports 与 diff-check 通过。本修复不关闭 Task 17 其余验收步骤。
+
 **Files:**
 
 - Modify: `README.md`。
