@@ -725,7 +725,7 @@ Task 9 执行记录（2026-09-05）：先增加 `TestOpenRegular` 并观察 API 
 - Create: `internal/projection/paths.go`、`internal/projection/paths_test.go`。
 - Create: `internal/host/projection_fs.go`、`internal/host/projection_fs_test.go`。
 
-- [ ] **Step 1: 写自包含检查矩阵**
+- [x] **Step 1: 写自包含检查矩阵**
 
 ```text
 foreign/
@@ -746,13 +746,13 @@ foreign/
 
 `.md` 中 `../`、两种 plugin-root 变量、POSIX/Windows/UNC 绝对引用只产生 warning；普通 URL 不作为文件绝对路径。读取错误返回 error。根内 plugin manifest 按 Task 2 的契约不可投影。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/projection ./internal/host -run 'TestInspect|TestProjectionRoot' -v`
 
 Expected：FAIL。
 
-- [ ] **Step 3: 实现只读 Manifest**
+- [x] **Step 3: 实现只读 Manifest**
 
 ```go
 const MaxFiles = 2000
@@ -802,18 +802,27 @@ launch 先消费 Task 9 的扫描拒绝原因，只对通过入口检查的候�
 
 入口 link 解析、内部 link 展开、根锚定失败分别有测试。按当前递归分支的文件身份检测环，不用全局 visited 错误拒绝两份合法复制。Windows 路径大小写/盘符和 macOS `/private/var` 用文件身份与平台路径处理验证，不用字符串前缀比较。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 Run: `go test ./internal/projection ./internal/host -v`
 
 Expected：PASS；检查前后目录快照不变，Manifest 没有 []byte 正文。真正 symlink/Junction 测试在有权限的平台执行，Windows 缺 symlink 权限只能跳过该 fixture，不能跳过纯路径与拒绝逻辑。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/projection internal/host
-git commit -m "feat: inspect projection contents and enforce copy limits"
+git commit -m "feat: inspect self-contained skill projection manifests"
 ```
+
+**Task 10 执行证据（2026-09-05）：**
+
+- 新增平台文件明确列为本 Task 的 host 例外：`internal/host/projection_unix.go`、`projection_windows.go`、`projection_unix_test.go`、`projection_windows_test.go`。平台判断集中在文件构建约束；projection 核心不 import os，host 不 import projection（仅外部测试装配）。
+- 分组红绿：首组 API/比较函数缺失编译红灯后，普通文件/空目录清单通过；特殊文件、插件清单、三组大小写冲突、2001 文件/20 MiB + 1、Markdown warning、取消均观察到错误接受的断言失败，再实现对应检查。内部别名/环/外链组先失败，再按当前分支文件身份展开。打开句柄替换、Stat 错误、读取时取消组先失败，再补读取前复核与错误合并。
+- 真实 WSL 红灯：文件链接环最初返回无类型 `EvalSymlinks: too many links`；FIFO 子进程在 10 秒保护期限被终止。以 Stat 的结构错误识别环，且使用锚定 `Root.OpenFile(O_NONBLOCK)` 后两组转绿；真实链接、根重命名后句柄锚定、内部链式展开、父级/同前缀兄弟/单个 SKILL.md 外链、断链、FIFO/socket 均通过。
+- 真实 Windows Junction 红灯：Go 1.24 兼容设置下 EvalSymlinks 不展开 Junction，入口子文件检查失败，跨盘目标误判 contained。Windows 专用 helper 仅按组件读取 Lstat/Readlink 元数据，最后规范路径；不同 VolumeName 判为根外。入口 Junction、根内别名/链式 Junction、目录环、C 盘根到 D 盘目标拒绝及直接根锚定 Open 拒绝均已通过，未改 GODEBUG。
+- 最终验证通过：Windows `go test -short ./...`；`go test ./internal/projection ./internal/host`；局部 golangci-lint v2.13.2（0 issues）；WSL `go test ./internal/projection ./internal/host -timeout 120s`；gofmt/goimports。projection 覆盖率 95.5%。本次无并发生产逻辑，未运行 Windows race（无 cgo）；WSL 真实 FIFO 用带超时的独立进程保护。
+- Windows 无 symlink 权限的 fixture 单独跳过；真实 Junction 测试执行，纯路径/拒绝/限额算法全部执行。快照确认 Inspect 不修改来源，返回 Manifest 仅保存路径、实际大小/hash 和静态 warning，不保存正文；Root 保留发现入口供重开复查。未装配 Run、未实现 Copy、未改冻结核心类型。
 
 ### Task 11: 四状态解析与目标名称冲突
 
