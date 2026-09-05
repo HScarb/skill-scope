@@ -95,9 +95,12 @@ func TestIntegrationNoneIgnoresCorruptSkillSetsWithoutCreatingSession(t *testing
 	fixture := newIntegrationFixture(t)
 	writeFile(t, filepath.Join(fixture.skopeHome, "skillsets.toml"), "version = [\n")
 
-	output, code := fixture.run(t, []string{"claude", "-s", "none", "--from-user", "value"}, nil)
+	output, code := fixture.run(t, []string{"claude", "-s", "none", "--from-user", "value"}, map[string]string{"FAKEAGENT_PLUGIN_JSON": "invalid JSON"})
 	if code != 0 {
 		t.Fatalf("none launch exit code = %d, want 0\n%s", code, output)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.root, "probe.jsonl")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("none ran probe: %v", err)
 	}
 	record := readFakeRecord(t, fixture.fakeOutput)
 	wantArgs := []string{"--from-config", "configured", "--from-user", "value"}
@@ -290,11 +293,14 @@ args = ["--from-config", "configured"]
 func (f *integrationFixture) run(t *testing.T, args []string, extraEnv map[string]string) (string, int) {
 	t.Helper()
 	overrides := map[string]string{
-		"HOME":              f.home,
-		"SKOPE_HOME":        f.skopeHome,
-		"CLAUDE_CONFIG_DIR": f.claudeConfig,
-		"FAKEAGENT_OUT":     f.fakeOutput,
-		"FAKEAGENT_EXIT":    "0",
+		"HOME":                  f.home,
+		"SKOPE_HOME":            f.skopeHome,
+		"CLAUDE_CONFIG_DIR":     f.claudeConfig,
+		"FAKEAGENT_OUT":         f.fakeOutput,
+		"FAKEAGENT_EXIT":        "0",
+		"FAKEAGENT_PLUGIN_JSON": "[]",
+		"FAKEAGENT_PLUGIN_EXIT": "0",
+		"FAKEAGENT_PROBE_LOG":   filepath.Join(f.root, "probe.jsonl"),
 	}
 	for key, value := range extraEnv {
 		overrides[key] = value
@@ -450,4 +456,55 @@ func withEnv(base []string, overrides map[string]string) []string {
 		environ = append(environ, key+"="+overrides[key])
 	}
 	return environ
+}
+
+func TestIntegrationProbeUsesResolvedExecutableAndIndependentLog(t *testing.T) {
+	requireUnixIntegration(t)
+	f := newIntegrationFixture(t)
+	output, code := f.run(t, []string{"claude", "-s", "dev", "--model", "sonnet"}, nil)
+	if code != 0 {
+		t.Fatalf("code=%d output=%s", code, output)
+	}
+	probe := readFakeRecord(t, filepath.Join(f.root, "probe.jsonl"))
+	if !reflect.DeepEqual(probe.Args, []string{"plugin", "list", "--json"}) || probe.Cwd != f.repo || probe.Env["CLAUDE_CONFIG_DIR"] != f.claudeConfig {
+		t.Fatalf("probe=%#v", probe)
+	}
+	ordinary := readFakeRecord(t, f.fakeOutput)
+	if len(ordinary.Args) < 4 || !reflect.DeepEqual(ordinary.Args[:4], []string{"--from-config", "configured", "--model", "sonnet"}) {
+		t.Fatalf("ordinary args=%v", ordinary.Args)
+	}
+}
+func TestIntegrationProbeFailureAndConflictStopBeforeStage(t *testing.T) {
+	requireUnixIntegration(t)
+	for _, test := range []struct {
+		name  string
+		args  []string
+		env   map[string]string
+		probe bool
+	}{
+		{name: "invalid JSON", env: map[string]string{"FAKEAGENT_PLUGIN_JSON": "{"}, probe: true},
+		{name: "probe exit", env: map[string]string{"FAKEAGENT_PLUGIN_EXIT": "17"}, probe: true},
+		{name: "conflict", args: []string{"--settings=secret-sentinel"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newIntegrationFixture(t)
+			output, code := f.run(t, append([]string{"claude", "-s", "dev"}, test.args...), test.env)
+			if code != 1 || strings.Contains(output, "secret-sentinel") {
+				t.Fatalf("code=%d output=%s", code, output)
+			}
+			if len(sessionEntries(t, f.skopeHome)) != 0 {
+				t.Fatal("created session after failure")
+			}
+			if _, err := os.Stat(f.fakeOutput); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("normal handoff output exists: %v", err)
+			}
+			_, err := os.Stat(filepath.Join(f.root, "probe.jsonl"))
+			if test.probe && err != nil {
+				t.Fatal(err)
+			}
+			if !test.probe && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("probe ran on conflict: %v", err)
+			}
+		})
+	}
 }

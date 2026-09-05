@@ -36,6 +36,13 @@ func (s Scanner) ScanClaude(env host.Env) (ScanResult, error) {
 		return ScanResult{}, err
 	}
 
+	result, err := s.ScanRoots(roots)
+	result.ProjectRoot = projectRoot
+	return result, err
+}
+
+func (s Scanner) ScanRoots(roots []Root) (ScanResult, error) {
+	var err error
 	var locations []Location
 	for _, root := range roots {
 		var found []Location
@@ -52,10 +59,10 @@ func (s Scanner) ScanClaude(env host.Env) (ScanResult, error) {
 	}
 
 	skills, collisions := Build(locations)
-	return ScanResult{Skills: skills, Collisions: collisions, ProjectRoot: projectRoot}, nil
+	return ScanResult{Skills: skills, Collisions: collisions}, nil
 }
 
-func (s Scanner) scanSkillRoot(root scanRoot) ([]Location, error) {
+func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
 	entries, err := s.FS.ReadDir(root.Path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -74,6 +81,14 @@ func (s Scanner) scanSkillRoot(root scanRoot) ([]Location, error) {
 			continue
 		}
 
+		if root.PluginID == "" && root.Source == SourceClaude {
+			manifest := joinPath(root.Path, entry.Name(), ".claude-plugin", "plugin.json")
+			if _, err := s.FS.Stat(manifest); err == nil {
+				continue
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("stat %s: %w", manifest, err)
+			}
+		}
 		discoveryPath := joinPath(root.Path, entry.Name(), "SKILL.md")
 		contents, err := s.FS.ReadFile(discoveryPath)
 		if err != nil {
@@ -105,14 +120,16 @@ func (s Scanner) scanSkillRoot(root scanRoot) ([]Location, error) {
 			Level:           root.Level,
 			Source:          root.Source,
 			Scope:           root.Scope,
+			PluginID:        root.PluginID,
+			PluginAgent:     root.PluginAgent,
 			FrontmatterName: frontmatterName,
-			Names:           map[Agent]string{AgentClaude: id},
+			Names:           rootNames(root, id),
 		})
 	}
 	return locations, nil
 }
 
-func (s Scanner) scanCommandRoot(root scanRoot) ([]Location, error) {
+func (s Scanner) scanCommandRoot(root Root) ([]Location, error) {
 	var locations []Location
 	if err := s.walkCommands(root, root.Path, true, &locations); err != nil {
 		return nil, err
@@ -120,7 +137,7 @@ func (s Scanner) scanCommandRoot(root scanRoot) ([]Location, error) {
 	return locations, nil
 }
 
-func (s Scanner) walkCommands(root scanRoot, directory string, isRoot bool, locations *[]Location) error {
+func (s Scanner) walkCommands(root Root, directory string, isRoot bool, locations *[]Location) error {
 	entries, err := s.FS.ReadDir(directory)
 	if err != nil {
 		if isRoot && errors.Is(err, fs.ErrNotExist) {
@@ -177,7 +194,9 @@ func (s Scanner) walkCommands(root scanRoot, directory string, isRoot bool, loca
 			Level:         root.Level,
 			Source:        root.Source,
 			Scope:         root.Scope,
-			Names:         map[Agent]string{AgentClaude: id},
+			PluginID:      root.PluginID,
+			PluginAgent:   root.PluginAgent,
+			Names:         rootNames(root, id),
 		})
 	}
 	return nil
@@ -235,4 +254,14 @@ func scopedName(scope, name string) string {
 		return name
 	}
 	return scope + ":" + name
+}
+
+func rootNames(root Root, name string) map[Agent]string {
+	names := make(map[Agent]string, len(root.VisibleTo))
+	for _, agent := range root.VisibleTo {
+		if root.Kind != KindCommand || agent == AgentClaude {
+			names[agent] = scopedName(root.NamePrefix, name)
+		}
+	}
+	return names
 }

@@ -417,6 +417,16 @@ git commit -m "feat: contain Windows auxiliary probes in a job"
 
 实施记录（2026-09-05）：解除 Windows skip 后，共用正常运行与 Windows 参数、环境值、脚本拒绝测试先因 ErrUnsupported 失败。实现独立 Job 与创建时 JOB_LIST 绑定；仅复制三个标准句柄，UTF-16 显式环境块、NUL stdin、CREATE_NO_WINDOW。Windows `go test ./internal/proc -v -timeout 90s`、`go test -short ./...`、局部 golangci-lint（0 issues）通过；WSL `go test -race ./internal/proc -timeout 90s` 通过，gofmt/goimports 完成。实测覆盖后代取消/超时/超限、父先退出持有或不持有 pipe、20 轮正常/超时/取消/创建失败句柄归还、空/含引号参数和空格 exe 路径、空环境及含等号/中文值。隔离 helper 进入 active-process-limit=1 外层 Job 后，Runner 返回 ContainmentError 且 probe marker 未创建。Windows TCP 后代测试显式传 SystemRoot 供 Winsock 初始化，以 EOF/WSAECONNRESET 确认连接结束；生产不补环境变量。当前 Windows 已验证创建时绑定；旧系统或约束不允许时返回类型化错误，不作无 Job 降级。handoff_windows.go 保持 ErrUnsupported。
 
+### Task 7–8 联合交付记录（2026-09-05）
+
+- 执行顺序调整：Task 7 Inventory 需要当次解析后的 executable 与 selection，Task 8 工厂是其生产装配依赖；两项同批验证并提交，避免旧 CLI 构造缺 probe 依赖的适配器。未增加跳过 probe 的兼容分支。
+- 红绿证据：`TestInventoryRequiresConfiguredProbe` 先得到 nil error；损坏 list、enabledPlugins 和 missing warning/精确 Request 测试先失败；工厂 API 测试先因缺 NewRegistry/CheckConflicts 无法编译。实现后相关包通过。目录定位、scope、显式 roots 与真实结构 fixture 回归初次直接通过，不记为独立红灯。
+- 边界回归另有实际红绿：`notes:[null]` 起初误认 suppressed，改为逐项字符串校验；非对象 list 项起初缺索引，改为逐项解码，错误保留 item index 且不回显值。
+- 快照范围：directory 来源仅其他项目记录且没有当前适用行时，同样只保留 installed ID、不报 plugin missing、不建立 native location；这是本批保守快照决定，不声称已由 Task 2 验证，亦不预知 Claude 后续自动增加 user 安装。缓存 scope 行选择和目录原地根定位分别有独立 fixture 覆盖。
+- 读取 `parsedSettings` 与 Plan 的 `settingsFile` 分开；本批 Plan 输出仍仅含 skillOverrides，完整控制字段留在 Task 13。冻结六类型未改动。
+- 验证：Windows 四相关包、全库 `go test -short ./...`；WSL 四包（含生产配置 executable 的 fake probe/正常 handoff 集成）；golangci-lint v2.13.2（含 depguard 与 goimports）。没有调用真实 Claude 模型。
+- 提交统一使用 `feat: enumerate Claude plugins with launch-scoped adapters`，替代下面两个独立提交步骤。
+
 ### Task 7: Claude plugin JSON、三层 settings 与完整 inventory
 
 **Files:**
@@ -427,7 +437,7 @@ git commit -m "feat: contain Windows auxiliary probes in a job"
 - Modify: `internal/agent/claude/testdata/plugin-list.valid.json`（只按验证证据调整）。
 - Modify: `internal/skill/scan.go`、`internal/skill/scope.go`、`internal/skill/scan_test.go`（显式 roots API）。
 
-- [ ] **Step 1: 写输入校验与集合语义测试**
+- [x] **Step 1: 写输入校验与集合语义测试**
 
 用 fake Runner 记录请求；合法 fixture 取 Task 2。每次有效 Inventory 恰好调用一次 plugin list。测试至少覆盖：
 
@@ -451,13 +461,13 @@ git commit -m "feat: contain Windows auxiliary probes in a job"
 | `enabledPlugins` 为 null/数组，值不是 bool | settings 文件路径 + 字段错误 |
 | 无关 settings 字段 | 接受；不重新序列化或泄漏它们 |
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/agent/claude ./internal/skill -run 'TestInventory|TestPlugin|TestScannerExplicit' -v`
 
 Expected：新行为 FAIL。
 
-- [ ] **Step 3: 增加非冻结类型与显式根扫描**
+- [x] **Step 3: 增加非冻结类型与显式根扫描**
 
 ```go
 // internal/agent/claude/adapter.go
@@ -516,13 +526,13 @@ plugin location 填 `LevelPlugin/SourceClaude/PluginID/PluginAgent`，ID 仍按 
 
 settings 不存在允许；已确定有效安装目录读失败按 §10 报错。只收集字段键，既不依赖 settings 合并优先级，也不改写任何持久化文件。
 
-- [ ] **Step 4: 运行绿灯并验证不可变性**
+- [x] **Step 4: 运行绿灯并验证不可变性**
 
 Run: `go test ./internal/agent/claude ./internal/skill -v`
 
 Expected：PASS；修改构造参数或返回 inventory 不能影响第二次调用；缺 runner/executable 是明确配置错误，不偷偷跳过枚举。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/agent/claude internal/skill
@@ -538,7 +548,7 @@ git commit -m "feat: enumerate Claude plugins and settings control keys"
 - Create: `internal/cli/conflict.go`、`internal/cli/conflict_test.go`。
 - Modify: `internal/cli/integration_test.go`（共享 fixture 增加默认 probe 支持）。
 
-- [ ] **Step 1: 写顺序、来源和隔离旁路测试**
+- [x] **Step 1: 写顺序、来源和隔离旁路测试**
 
 在 launch 记录型依赖测试中断言：配置/回收/解析 executable/解析 set/加载并集 → conflict → registry factory → inventory。conflict 失败时 factory、probe、Stage、Handoff 都没有调用。
 
@@ -546,13 +556,13 @@ git commit -m "feat: enumerate Claude plugins and settings control keys"
 
 补 `-s none` 完整旁路、普通 `--model` 允许、`--settings-file` 不误判、`--` 透传后出现冲突仍拒绝。检测不通过连接字符串寻找子串，不改变传入 slice。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/launch ./internal/cli -run 'TestServiceRun|TestClaudeConflict' -v`
 
 Expected：FAIL。
 
-- [ ] **Step 3: 替换 Service.Registry 为受控工厂**
+- [x] **Step 3: 替换 Service.Registry 为受控工厂**
 
 ```go
 type RegistryFactory func(executable string, selection config.Selection) (AdapterRegistry, error)
@@ -589,13 +599,13 @@ func claudeConflict(args []string) string {
 
 导出消费入口 `func CheckConflicts(agent skill.Agent, configArgs, userArgs []string) error`，分别扫描 configArgs/userArgs 后构造只带 Flag/Source 的 `ConflictError`。CLI 包仍是 internal 包，此函数只供生产装配和黑盒测试使用；不得由 launch import 它。非 Claude 暂无本期检查，未来 adapter 实施时增加对应分支。不解析或打印值；none 路径在调用前返回。将原 `args.go` 首个未知 token 停止解析规则完整保留。
 
-- [ ] **Step 4: 回归**
+- [x] **Step 4: 回归**
 
 Run: `go test ./internal/launch ./internal/cli -v`
 
 Expected：PASS；fake probe 使用配置的 fake executable，启动日志仍保留配置参数与用户参数顺序。旧 integration 的 settings 断言暂保留旧输出，Task 13 再同步三个新字段。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/launch internal/cli

@@ -14,6 +14,7 @@ import (
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/host"
+	"github.com/scarb/skope/internal/proc"
 	"github.com/scarb/skope/internal/skill"
 )
 
@@ -21,27 +22,64 @@ func (a Adapter) Inventory(ctx context.Context, env host.Env) (agent.Inventory, 
 	if err := ctx.Err(); err != nil {
 		return agent.Inventory{}, err
 	}
-	scanned, err := a.Scanner.ScanClaude(env)
+	if a.scanner == nil || a.fs == nil || a.runner == nil || strings.TrimSpace(a.options.Executable) == "" {
+		return agent.Inventory{}, fmt.Errorf("claude inventory configuration requires scanner, filesystem, probe runner and executable")
+	}
+	scanned, err := a.scanner.ScanClaude(env)
 	if err != nil {
 		return agent.Inventory{}, fmt.Errorf("scan Claude skills: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return agent.Inventory{}, err
 	}
-	skillNames, err := a.readSkillNames(ctx, env, scanned.ProjectRoot)
+	skillNames, pluginIDs, err := a.readSettings(ctx, env, scanned.ProjectRoot)
 	if err != nil {
 		return agent.Inventory{}, err
 	}
-	return agent.Inventory{
-		Skills:     cloneSkills(scanned.Skills),
-		SkillNames: skillNames,
-		PluginIDs:  make([]string, 0),
-		Collisions: cloneCollisions(scanned.Collisions),
-		Warnings:   make([]string, 0),
-	}, nil
+	result, err := a.runner.Run(ctx, proc.Request{Executable: a.options.Executable, Args: []string{"plugin", "list", "--json"}, Dir: env.Cwd(), Env: env.Environ()})
+	if err != nil {
+		return agent.Inventory{}, fmt.Errorf("claude plugin list: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return agent.Inventory{}, err
+	}
+	installations, err := parsePlugins(result.Stdout)
+	if err != nil {
+		return agent.Inventory{}, err
+	}
+	installed := make(map[string]struct{})
+	for _, p := range installations {
+		installed[p.ID] = struct{}{}
+		pluginIDs[p.ID] = struct{}{}
+	}
+	warnings := make([]string, 0)
+	for _, id := range a.options.Plugins {
+		if _, ok := installed[id]; !ok {
+			warnings = append(warnings, fmt.Sprintf("plugin %s is not installed", id))
+		}
+	}
+	roots, err := a.pluginRoots(ctx, env, installations)
+	if err != nil {
+		return agent.Inventory{}, err
+	}
+	var locations []skill.Location
+	for _, candidate := range scanned.Skills {
+		locations = append(locations, candidate.Locations...)
+	}
+	if len(roots) > 0 {
+		plugins, err := a.scanner.ScanRoots(roots)
+		if err != nil {
+			return agent.Inventory{}, fmt.Errorf("scan Claude plugins: %w", err)
+		}
+		for _, candidate := range plugins.Skills {
+			locations = append(locations, candidate.Locations...)
+		}
+	}
+	skills, collisions := skill.Build(locations)
+	return agent.Inventory{Skills: skills, SkillNames: skillNames, PluginIDs: sortedSet(pluginIDs), Collisions: collisions, Warnings: warnings}, nil
 }
 
-func (a Adapter) readSkillNames(ctx context.Context, env host.Env, projectRoot string) ([]string, error) {
+func (a Adapter) readSettings(ctx context.Context, env host.Env, projectRoot string) ([]string, map[string]struct{}, error) {
 	configDirectory := strings.TrimSpace(env.Get("CLAUDE_CONFIG_DIR"))
 	if configDirectory == "" {
 		configDirectory = joinPath(env.Home(), ".claude")
@@ -52,70 +90,94 @@ func (a Adapter) readSkillNames(ctx context.Context, env host.Env, projectRoot s
 		joinPath(projectRoot, ".claude", "settings.local.json"),
 	}
 	names := make(map[string]struct{})
+	plugins := make(map[string]struct{})
 	for _, name := range paths {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		contents, err := a.FS.ReadFile(name)
+		contents, err := a.fs.ReadFile(name)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", name, err)
+			return nil, nil, fmt.Errorf("read %s: %w", name, err)
 		}
 		settings, err := parseSettings(contents)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", name, err)
+			return nil, nil, fmt.Errorf("parse %s: %w", name, err)
+		}
+		for plugin := range settings.EnabledPlugins {
+			plugins[plugin] = struct{}{}
 		}
 		for skillName := range settings.SkillOverrides {
 			names[skillName] = struct{}{}
 		}
 	}
-	sorted := make([]string, 0, len(names))
-	for name := range names {
-		sorted = append(sorted, name)
-	}
-	slices.Sort(sorted)
-	return sorted, nil
+	return sortedSet(names), plugins, nil
 }
 
-type settingsFile struct {
+func sortedSet(values map[string]struct{}) []string {
+	sorted := make([]string, 0, len(values))
+	for value := range values {
+		sorted = append(sorted, value)
+	}
+	slices.Sort(sorted)
+	return sorted
+}
+
+type parsedSettings struct {
+	EnabledPlugins map[string]bool   `json:"enabledPlugins"`
 	SkillOverrides map[string]string `json:"skillOverrides"`
 }
 
-func parseSettings(contents []byte) (settingsFile, error) {
+func parseSettings(contents []byte) (parsedSettings, error) {
 	decoder := json.NewDecoder(bytes.NewReader(contents))
 	var root json.RawMessage
 	if err := decoder.Decode(&root); err != nil {
-		return settingsFile{}, err
+		return parsedSettings{}, err
 	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return settingsFile{}, fmt.Errorf("trailing JSON value")
+			return parsedSettings{}, fmt.Errorf("trailing JSON value")
 		}
-		return settingsFile{}, err
+		return parsedSettings{}, err
 	}
 
 	trimmedRoot := bytes.TrimSpace(root)
 	if len(trimmedRoot) == 0 || trimmedRoot[0] != '{' {
-		return settingsFile{}, fmt.Errorf("settings root must be an object")
+		return parsedSettings{}, fmt.Errorf("settings root must be an object")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(trimmedRoot, &fields); err != nil {
-		return settingsFile{}, err
+		return parsedSettings{}, err
 	}
 	overrides, exists := fields["skillOverrides"]
 	if exists {
 		trimmedOverrides := bytes.TrimSpace(overrides)
 		if len(trimmedOverrides) == 0 || trimmedOverrides[0] != '{' {
-			return settingsFile{}, fmt.Errorf("skillOverrides must be an object")
+			return parsedSettings{}, fmt.Errorf("skillOverrides must be an object")
 		}
 	}
 
-	var settings settingsFile
+	if raw, exists := fields["enabledPlugins"]; exists {
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			return parsedSettings{}, fmt.Errorf("enabledPlugins must be an object")
+		}
+		var plugins map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &plugins); err != nil {
+			return parsedSettings{}, fmt.Errorf("enabledPlugins is invalid")
+		}
+		for _, value := range plugins {
+			if string(value) != "true" && string(value) != "false" {
+				return parsedSettings{}, fmt.Errorf("enabledPlugins values must be booleans")
+			}
+		}
+	}
+	var settings parsedSettings
 	if err := json.Unmarshal(trimmedRoot, &settings); err != nil {
-		return settingsFile{}, err
+		return parsedSettings{}, err
 	}
 	return settings, nil
 }
@@ -126,34 +188,4 @@ func joinPath(elements ...string) string {
 		native[index] = filepath.FromSlash(element)
 	}
 	return filepath.ToSlash(filepath.Join(native...))
-}
-
-func cloneSkills(source []skill.Skill) []skill.Skill {
-	cloned := make([]skill.Skill, len(source))
-	for index, candidate := range source {
-		cloned[index] = skill.Skill{ID: candidate.ID, Locations: cloneLocations(candidate.Locations)}
-	}
-	return cloned
-}
-
-func cloneLocations(source []skill.Location) []skill.Location {
-	cloned := make([]skill.Location, len(source))
-	for index, location := range source {
-		cloned[index] = location
-		cloned[index].Names = make(map[skill.Agent]string, len(location.Names))
-		for name, value := range location.Names {
-			cloned[index].Names[name] = value
-		}
-	}
-	return cloned
-}
-
-func cloneCollisions(source []skill.Collision) []skill.Collision {
-	cloned := make([]skill.Collision, len(source))
-	for index, collision := range source {
-		cloned[index] = collision
-		cloned[index].IDs = append([]string(nil), collision.IDs...)
-		cloned[index].Paths = append([]string(nil), collision.Paths...)
-	}
-	return cloned
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/scarb/skope/internal/agent"
+	"github.com/scarb/skope/internal/config"
 	"github.com/scarb/skope/internal/host"
 	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
@@ -37,7 +38,7 @@ func TestServiceRunActiveSetOrchestratesLaunch(t *testing.T) {
 
 	wantEvents := []string{
 		"read config.toml", "reap", "lookpath", "read skillsets.toml",
-		"registry", "inventory", "stage", "plan", "write", "publish", "report", "handoff",
+		"conflict", "factory", "registry", "inventory", "stage", "plan", "write", "publish", "report", "handoff",
 	}
 	if !reflect.DeepEqual(fixture.events, wantEvents) {
 		t.Fatalf("events = %#v, want %#v", fixture.events, wantEvents)
@@ -170,7 +171,7 @@ func TestServiceRunDryRunUsesPreviewAndStopsAfterReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	want := []string{"read config.toml", "reap", "lookpath", "read skillsets.toml", "registry", "inventory", "preview", "plan", "report"}
+	want := []string{"read config.toml", "reap", "lookpath", "read skillsets.toml", "conflict", "factory", "registry", "inventory", "preview", "plan", "report"}
 	if !reflect.DeepEqual(fixture.events, want) {
 		t.Fatalf("events = %#v, want %#v", fixture.events, want)
 	}
@@ -606,13 +607,14 @@ func newFixture() *fixture {
 	}
 	f.handoff = &fakeHandoff{fixture: f}
 	f.service = &Service{
-		Env:       host.NewEnv("user-home", "cwd", map[string]string{"BASE": "1", "CHANGE": "old"}),
-		FS:        f.fsys,
-		SkopeHome: "skope-home",
-		Registry:  f.registry,
-		Resolver:  f.resolver,
-		Sessions:  f.sessions,
-		Handoff:   f.handoff,
+		Env:            host.NewEnv("user-home", "cwd", map[string]string{"BASE": "1", "CHANGE": "old"}),
+		FS:             f.fsys,
+		SkopeHome:      "skope-home",
+		NewRegistry:    func(string, config.Selection) (AdapterRegistry, error) { f.record("factory"); return f.registry, nil },
+		CheckConflicts: func(skill.Agent, []string, []string) error { f.record("conflict"); return nil },
+		Resolver:       f.resolver,
+		Sessions:       f.sessions,
+		Handoff:        f.handoff,
 	}
 	return f
 }
@@ -806,4 +808,71 @@ func cloneSessionFiles(source []session.File) []session.File {
 		cloned[i].Data = append([]byte(nil), file.Data...)
 	}
 	return cloned
+}
+
+func TestServiceChecksConflictsBeforeFactory(t *testing.T) {
+	f := newFixture()
+	want := errors.New("conflicting flag")
+	f.service.CheckConflicts = func(agent skill.Agent, configArgs, userArgs []string) error {
+		if agent != skill.AgentClaude || !reflect.DeepEqual(configArgs, []string{"--config"}) || !reflect.DeepEqual(userArgs, []string{"--request"}) {
+			t.Fatalf("inputs=%s %v %v", agent, configArgs, userArgs)
+		}
+		return want
+	}
+	err := f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "dev", AgentArgs: []string{"--request"}}, f.reporter)
+	if !errors.Is(err, want) || !reflect.DeepEqual(f.events, []string{"read config.toml", "reap", "lookpath", "read skillsets.toml"}) {
+		t.Fatalf("err=%v events=%v", err, f.events)
+	}
+}
+func TestServiceFactoryReceivesLaunchSelectionCopy(t *testing.T) {
+	f := newFixture()
+	f.fsys.files[f.skillSetsPath] = []byte("version=1\n[skillsets.dev]\nskills=['one']\nbundled=false\n[skillsets.dev.plugins]\nclaude=['p@m']\n[skillsets.ops]\nskills=['one']\nbundled=true\n[skillsets.ops.plugins]\nclaude=['q@m','p@m']\n")
+	f.service.NewRegistry = func(executable string, selection config.Selection) (AdapterRegistry, error) {
+		if executable != f.resolver.path || !selection.Bundled || !reflect.DeepEqual(selection.Plugins["claude"], []string{"p@m", "q@m"}) {
+			t.Fatalf("factory inputs=%s %#v", executable, selection)
+		}
+		selection.Skills[0] = "changed"
+		selection.Plugins["claude"][0] = "changed"
+		delete(selection.Plugins, "claude")
+		return f.registry, nil
+	}
+	err := f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "dev,ops", DryRun: true}, func(result Result) error {
+		if len(result.Resolved.Entries) != 1 || result.Resolved.Entries[0].ID != "one" {
+			t.Fatalf("resolved=%#v", result.Resolved)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+func TestServiceRequiresActiveFactoryAndCheckerButNoneBypasses(t *testing.T) {
+	for _, dep := range []string{"factory", "checker"} {
+		t.Run(dep, func(t *testing.T) {
+			f := newFixture()
+			if dep == "factory" {
+				f.service.NewRegistry = nil
+			} else {
+				f.service.CheckConflicts = nil
+			}
+			err := f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "dev", DryRun: true}, f.reporter)
+			if err == nil || !strings.Contains(err.Error(), "configuration") {
+				t.Fatalf("error=%v", err)
+			}
+			err = f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "none", DryRun: true}, f.reporter)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestServiceFactoryFailureStopsBeforeInventory(t *testing.T) {
+	f := newFixture()
+	want := errors.New("factory failed")
+	f.service.NewRegistry = func(string, config.Selection) (AdapterRegistry, error) { f.record("factory"); return nil, want }
+	err := f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "dev"}, f.reporter)
+	if !errors.Is(err, want) || !reflect.DeepEqual(f.events, []string{"read config.toml", "reap", "lookpath", "read skillsets.toml", "conflict", "factory"}) {
+		t.Fatalf("error=%v events=%v", err, f.events)
+	}
 }

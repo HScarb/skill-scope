@@ -440,3 +440,13 @@ func TestExecuteUnknownCommandReturnsOne(t *testing.T) {
 		t.Errorf("stderr should name the unknown command, got %q", stderr.String())
 	}
 }
+
+func TestApplicationPropagatesConflictError(t *testing.T) {
+	app := cli.Application{RunLaunch: func(context.Context, launch.Request, launch.Reporter) error {
+		return &cli.ConflictError{Flag: "--settings", Source: "command-line"}
+	}}
+	var stdout, stderr bytes.Buffer
+	if code := app.Execute([]string{"claude", "-s", "dev"}, &stdout, &stderr, "test"); code != 1 || !strings.Contains(stderr.String(), "--settings") || !strings.Contains(stderr.String(), "command-line") {
+		t.Fatalf("code=%d stderr=%s", code, &stderr)
+	}
+}

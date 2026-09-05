@@ -11,15 +11,19 @@ import (
 	"github.com/scarb/skope/internal/host"
 )
 
-type scanRoot struct {
-	Path   string
-	Kind   Kind
-	Level  Level
-	Source Source
-	Scope  string
+type Root struct {
+	Path        string
+	Kind        Kind
+	Level       Level
+	Source      Source
+	Scope       string
+	VisibleTo   []Agent
+	PluginID    string
+	PluginAgent Agent
+	NamePrefix  string
 }
 
-func claudeScanRoots(fileSystem FileSystem, env host.Env) ([]scanRoot, string, error) {
+func claudeScanRoots(fileSystem FileSystem, env host.Env) ([]Root, string, error) {
 	cwd := cleanPath(env.Cwd())
 	projectRoot, found, err := findGitRoot(fileSystem, cwd)
 	if err != nil {
@@ -29,15 +33,15 @@ func claudeScanRoots(fileSystem FileSystem, env host.Env) ([]scanRoot, string, e
 		projectRoot = cwd
 	}
 
-	var roots []scanRoot
+	var roots []Root
 	for _, directory := range projectDirectories(projectRoot, cwd) {
 		scope, err := relativePath(projectRoot, directory)
 		if err != nil {
 			return nil, "", fmt.Errorf("resolve scope for %s from %s: %w", directory, projectRoot, err)
 		}
 		roots = append(roots,
-			scanRoot{Path: joinPath(directory, ".claude/skills"), Kind: KindSkill, Level: LevelProject, Source: SourceClaude, Scope: scope},
-			scanRoot{Path: joinPath(directory, ".claude/commands"), Kind: KindCommand, Level: LevelProject, Source: SourceClaude, Scope: scope},
+			Root{Path: joinPath(directory, ".claude/skills"), Kind: KindSkill, Level: LevelProject, Source: SourceClaude, VisibleTo: []Agent{AgentClaude}, Scope: scope},
+			Root{Path: joinPath(directory, ".claude/commands"), Kind: KindCommand, Level: LevelProject, Source: SourceClaude, VisibleTo: []Agent{AgentClaude}, Scope: scope},
 		)
 	}
 
@@ -48,8 +52,8 @@ func claudeScanRoots(fileSystem FileSystem, env host.Env) ([]scanRoot, string, e
 		configDirectory = cleanPath(configDirectory)
 	}
 	roots = append(roots,
-		scanRoot{Path: joinPath(configDirectory, "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceClaude},
-		scanRoot{Path: joinPath(configDirectory, "commands"), Kind: KindCommand, Level: LevelGlobal, Source: SourceClaude},
+		Root{Path: joinPath(configDirectory, "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceClaude, VisibleTo: []Agent{AgentClaude}},
+		Root{Path: joinPath(configDirectory, "commands"), Kind: KindCommand, Level: LevelGlobal, Source: SourceClaude, VisibleTo: []Agent{AgentClaude}},
 	)
 
 	return uniqueScanRoots(roots), projectRoot, nil
@@ -81,8 +85,8 @@ func projectDirectories(projectRoot, cwd string) []string {
 	return directories
 }
 
-func uniqueScanRoots(roots []scanRoot) []scanRoot {
-	unique := make([]scanRoot, 0, len(roots))
+func uniqueScanRoots(roots []Root) []Root {
+	unique := make([]Root, 0, len(roots))
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
 		key := string(root.Source) + "\x00" + string(root.Kind) + "\x00" + root.Path

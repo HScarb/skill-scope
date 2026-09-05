@@ -9,6 +9,10 @@ import (
 	"github.com/scarb/skope/internal/skill"
 )
 
+type settingsFile struct {
+	SkillOverrides map[string]string `json:"skillOverrides"`
+}
+
 var _ agent.Adapter = Adapter{}
 
 func (Adapter) Plan(resolved skill.Resolved, inv agent.Inventory, sess *session.Session) (agent.LaunchPlan, error) {

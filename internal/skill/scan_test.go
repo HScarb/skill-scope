@@ -628,3 +628,43 @@ func mustSymlink(t *testing.T, target, link string) {
 		t.Fatalf("Symlink(%q, %q): %v", target, link, err)
 	}
 }
+
+func TestScannerExplicitRootsCarryNamesAndPluginMetadata(t *testing.T) {
+	t.Parallel()
+	fsys := newMapFS(fstest.MapFS{"plugins/skills/review/SKILL.md": file("# review"), "shared/skills/check/SKILL.md": file("# check"), "commands/run.md": file("run")})
+	roots := []skill.Root{
+		{Path: "/plugins/skills", Kind: skill.KindSkill, Level: skill.LevelPlugin, Source: skill.SourceClaude, VisibleTo: []skill.Agent{skill.AgentClaude}, PluginID: "p@m", PluginAgent: skill.AgentClaude, NamePrefix: "namespace"},
+		{Path: "/shared/skills", Kind: skill.KindSkill, Level: skill.LevelGlobal, Source: skill.SourceAgents, Scope: "app", VisibleTo: []skill.Agent{skill.AgentClaude, skill.AgentCodex}},
+		{Path: "/commands", Kind: skill.KindCommand, Level: skill.LevelProject, Source: skill.SourceClaude, VisibleTo: []skill.Agent{skill.AgentClaude, skill.AgentCodex}},
+	}
+	got, err := (skill.Scanner{FS: fsys}).ScanRoots(roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Skills) != 3 {
+		t.Fatalf("skills=%#v", got.Skills)
+	}
+	byID := map[string]skill.Location{}
+	for _, s := range got.Skills {
+		byID[s.ID] = s.Locations[0]
+	}
+	plugin := byID["review"]
+	if plugin.PluginID != "p@m" || plugin.PluginAgent != skill.AgentClaude || plugin.Names[skill.AgentClaude] != "namespace:review" || plugin.Level != skill.LevelPlugin {
+		t.Fatalf("plugin=%#v", plugin)
+	}
+	shared := byID["app:check"]
+	if shared.Source != skill.SourceAgents || !reflect.DeepEqual(shared.Names, map[skill.Agent]string{skill.AgentClaude: "app:check", skill.AgentCodex: "app:check"}) {
+		t.Fatalf("shared=%#v", shared)
+	}
+	if !reflect.DeepEqual(byID["run"].Names, map[skill.Agent]string{skill.AgentClaude: "run"}) {
+		t.Fatalf("command=%#v", byID["run"])
+	}
+}
+func TestScannerExplicitForeignRootKeepsManifestCandidate(t *testing.T) {
+	t.Parallel()
+	fsys := newMapFS(fstest.MapFS{"skills/review/.claude-plugin/plugin.json": file(`{"name":"p"}`), "skills/review/SKILL.md": file("# review")})
+	got, err := (skill.Scanner{FS: fsys}).ScanRoots([]skill.Root{{Path: "/skills", Kind: skill.KindSkill, Level: skill.LevelGlobal, Source: skill.SourceAgents, VisibleTo: []skill.Agent{skill.AgentCodex}}})
+	if err != nil || len(got.Skills) != 1 {
+		t.Fatalf("skills=%#v error=%v", got, err)
+	}
+}

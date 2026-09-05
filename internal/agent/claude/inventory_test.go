@@ -40,23 +40,18 @@ func TestInventoryScansOnceAndDeepCopiesScannerResults(t *testing.T) {
 				RealPath:        "/real/review/SKILL.md",
 				Level:           skill.LevelProject,
 				Source:          skill.SourceClaude,
-				Scope:           "app",
+				Scope:           "",
 				FrontmatterName: "review-tool",
 				Names:           map[skill.Agent]string{skill.AgentClaude: "review"},
 				PluginID:        "review@market",
 				PluginAgent:     skill.AgentClaude,
 			}},
 		}},
-		Collisions: []skill.Collision{{
-			Kind:  skill.CollisionEffectiveName,
-			IDs:   []string{"review", "other"},
-			Agent: skill.AgentClaude,
-			Name:  "review",
-			Paths: []string{"/first", "/second"},
-		}},
 	}
+	fixture.Skills, fixture.Collisions = skill.Build(fixture.Skills[0].Locations)
+
 	scanner := &fakeScanner{result: fixture}
-	adapter := claude.Adapter{Scanner: scanner, FS: missingFS{}}
+	adapter := newTestAdapter(scanner, missingFS{})
 
 	got, err := adapter.Inventory(context.Background(), host.NewEnv("/home/me", "/repo", nil))
 	if err != nil {
@@ -81,7 +76,7 @@ func TestInventoryScansOnceAndDeepCopiesScannerResults(t *testing.T) {
 		fixture.Skills[0].Locations[0].DiscoveryPath != "/repo/.claude/skills/review/SKILL.md" ||
 		fixture.Skills[0].Locations[0].Names[skill.AgentClaude] != "review" ||
 		fixture.Collisions[0].IDs[0] != "review" ||
-		fixture.Collisions[0].Paths[0] != "/first" {
+		fixture.Collisions[0].Paths[0] != "/repo/.claude/skills/review/SKILL.md" {
 		t.Fatalf("Inventory() returned scanner-owned storage: %#v", fixture)
 	}
 }
@@ -134,10 +129,7 @@ func TestInventoryCollectsSortedSkillOverrideNamesFromSettingsLayers(t *testing.
 				"/repo/.claude/settings.json":       `{"skillOverrides":{"a":"on","shared":"enabled"}}`,
 				"/repo/.claude/settings.local.json": `{"skillOverrides":{"middle":"anything"}}`,
 			}}
-			adapter := claude.Adapter{
-				Scanner: &fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}},
-				FS:      fileSystem,
-			}
+			adapter := newTestAdapter(&fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}}, fileSystem)
 
 			got, err := adapter.Inventory(context.Background(), host.NewEnv("/home/me", "/repo/work", tt.vars))
 			if err != nil {
@@ -176,10 +168,7 @@ func TestInventoryRejectsMalformedSettingsWithPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			adapter := claude.Adapter{
-				Scanner: &fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}},
-				FS:      &mapReadFileFS{files: map[string]string{settingsPath: tt.contents}},
-			}
+			adapter := newTestAdapter(&fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}}, &mapReadFileFS{files: map[string]string{settingsPath: tt.contents}})
 			_, err := adapter.Inventory(context.Background(), host.NewEnv("/home/me", "/repo", nil))
 			if err == nil || !strings.Contains(err.Error(), settingsPath) {
 				t.Fatalf("Inventory() error = %v, want malformed settings path %q", err, settingsPath)
@@ -193,10 +182,7 @@ func TestInventoryFailsClosedOnSettingsReadError(t *testing.T) {
 
 	settingsPath := "/repo/.claude/settings.json"
 	fileSystem := &mapReadFileFS{errors: map[string]error{settingsPath: fs.ErrPermission}}
-	adapter := claude.Adapter{
-		Scanner: &fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}},
-		FS:      fileSystem,
-	}
+	adapter := newTestAdapter(&fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}}, fileSystem)
 
 	_, err := adapter.Inventory(context.Background(), host.NewEnv("/home/me", "/repo", nil))
 	if err == nil || !errors.Is(err, fs.ErrPermission) || !strings.Contains(err.Error(), settingsPath) {
@@ -211,7 +197,7 @@ func TestInventoryChecksContextBeforeScanner(t *testing.T) {
 	cancel()
 	scanner := &fakeScanner{}
 	fileSystem := &mapReadFileFS{}
-	adapter := claude.Adapter{Scanner: scanner, FS: fileSystem}
+	adapter := newTestAdapter(scanner, fileSystem)
 
 	_, err := adapter.Inventory(ctx, host.NewEnv("/home/me", "/repo", nil))
 	if !errors.Is(err, context.Canceled) {
@@ -229,7 +215,7 @@ func TestInventoryChecksContextAfterScannerAndBeforeEachSettingsRead(t *testing.
 		ctx, cancel := context.WithCancel(context.Background())
 		scanner := &fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}, onScan: cancel}
 		fileSystem := &mapReadFileFS{}
-		adapter := claude.Adapter{Scanner: scanner, FS: fileSystem}
+		adapter := newTestAdapter(scanner, fileSystem)
 
 		_, err := adapter.Inventory(ctx, host.NewEnv("/home/me", "/repo", nil))
 		if !errors.Is(err, context.Canceled) || len(fileSystem.calls) != 0 {
@@ -240,10 +226,7 @@ func TestInventoryChecksContextAfterScannerAndBeforeEachSettingsRead(t *testing.
 	t.Run("before next settings read", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		fileSystem := &mapReadFileFS{onRead: func(string) { cancel() }}
-		adapter := claude.Adapter{
-			Scanner: &fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}},
-			FS:      fileSystem,
-		}
+		adapter := newTestAdapter(&fakeScanner{result: skill.ScanResult{ProjectRoot: "/repo"}}, fileSystem)
 
 		_, err := adapter.Inventory(ctx, host.NewEnv("/home/me", "/repo", nil))
 		wantCalls := []string{"/home/me/.claude/settings.json"}
@@ -258,7 +241,7 @@ func TestInventoryWrapsScannerErrorWithoutSettingsIO(t *testing.T) {
 
 	wantErr := errors.New("scan failed")
 	fileSystem := &mapReadFileFS{}
-	adapter := claude.Adapter{Scanner: &fakeScanner{err: wantErr}, FS: fileSystem}
+	adapter := newTestAdapter(&fakeScanner{err: wantErr}, fileSystem)
 
 	_, err := adapter.Inventory(context.Background(), host.NewEnv("/home/me", "/repo", nil))
 	if !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "scan Claude") {
@@ -310,4 +293,11 @@ func (m *mapReadFileFS) ReadFile(name string) ([]byte, error) {
 		return nil, fs.ErrNotExist
 	}
 	return []byte(contents), nil
+}
+
+func (s *fakeScanner) ScanRoots([]skill.Root) (skill.ScanResult, error) {
+	return skill.ScanResult{}, nil
+}
+func newTestAdapter(scanner claude.SkillScanner, fsys claude.ReadFileFS) claude.Adapter {
+	return claude.New(scanner, fsys, &probeStub{stdout: "[]"}, claude.Options{Executable: "fixture-claude"})
 }

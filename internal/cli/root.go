@@ -13,6 +13,7 @@ import (
 	"github.com/scarb/skope/internal/handoff"
 	"github.com/scarb/skope/internal/host"
 	"github.com/scarb/skope/internal/launch"
+	"github.com/scarb/skope/internal/proc"
 	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
 	"github.com/spf13/cobra"
@@ -110,19 +111,18 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 
 	fsys := host.OSFileSystem{}
 	scanner := skill.Scanner{FS: fsys}
-	adapter := claude.Adapter{Scanner: scanner, FS: fsys}
-	registry, err := agent.NewRegistry(adapter)
-	if err != nil {
-		return fmt.Errorf("register agent adapters: %w", err)
-	}
 	service := launch.Service{
 		Env:       env,
 		FS:        fsys,
 		SkopeHome: skopeHome,
-		Registry:  registry,
-		Resolver:  host.ExecutableResolver{},
-		Sessions:  session.NewManager(skopeHome),
-		Handoff:   handoff.Handoff{},
+		NewRegistry: func(executable string, selection config.Selection) (launch.AdapterRegistry, error) {
+			adapter := claude.New(scanner, fsys, proc.Runner{}, claude.Options{Executable: executable, Plugins: append([]string(nil), selection.Plugins["claude"]...), Bundled: selection.Bundled})
+			return agent.NewRegistry(adapter)
+		},
+		CheckConflicts: CheckConflicts,
+		Resolver:       host.ExecutableResolver{},
+		Sessions:       session.NewManager(skopeHome),
+		Handoff:        handoff.Handoff{},
 	}
 	return service.Run(ctx, request, report)
 }

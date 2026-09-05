@@ -20,6 +20,9 @@ type AdapterRegistry interface {
 	Get(skill.Agent) (agent.Adapter, bool)
 }
 
+type RegistryFactory func(executable string, selection config.Selection) (AdapterRegistry, error)
+type ConflictChecker func(agent skill.Agent, configArgs, userArgs []string) error
+
 type ExecutableResolver interface {
 	LookPath(command string) (string, error)
 }
@@ -60,13 +63,14 @@ type Result struct {
 type Reporter func(Result) error
 
 type Service struct {
-	Env       host.Env
-	FS        config.ReadFileFS
-	SkopeHome string
-	Registry  AdapterRegistry
-	Resolver  ExecutableResolver
-	Sessions  SessionManager
-	Handoff   Handoff
+	Env            host.Env
+	FS             config.ReadFileFS
+	SkopeHome      string
+	NewRegistry    RegistryFactory
+	CheckConflicts ConflictChecker
+	Resolver       ExecutableResolver
+	Sessions       SessionManager
+	Handoff        Handoff
 }
 
 func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
@@ -152,7 +156,26 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	adapter, ok := s.Registry.Get(req.Agent)
+	if s.CheckConflicts == nil || s.NewRegistry == nil {
+		return errors.New("launch internal configuration requires registry factory and conflict checker")
+	}
+	if err := s.CheckConflicts(req.Agent, append([]string(nil), agentConfig.Args...), append([]string(nil), req.AgentArgs...)); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	registry, err := s.NewRegistry(executable, cloneSelection(selection))
+	if err != nil {
+		return fmt.Errorf("create adapter registry: %w", err)
+	}
+	if registry == nil {
+		return errors.New("launch internal configuration returned nil registry")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	adapter, ok := registry.Get(req.Agent)
 	if !ok {
 		return fmt.Errorf("adapter for agent %q is not registered", req.Agent)
 	}
@@ -342,6 +365,16 @@ func clonePlan(source agent.LaunchPlan) agent.LaunchPlan {
 	for i, file := range source.Files {
 		cloned.Files[i] = file
 		cloned.Files[i].Data = append([]byte(nil), file.Data...)
+	}
+	return cloned
+}
+
+func cloneSelection(source config.Selection) config.Selection {
+	cloned := source
+	cloned.Skills = append([]string(nil), source.Skills...)
+	cloned.Plugins = make(map[string][]string, len(source.Plugins))
+	for key, value := range source.Plugins {
+		cloned.Plugins[key] = append([]string(nil), value...)
 	}
 	return cloned
 }
