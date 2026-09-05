@@ -29,3 +29,11 @@ func TestVersionAppearsInHelp(t *testing.T) {
 		t.Errorf("help should list the version command:\n%s", stdout.String())
 	}
 }
+
+func TestVersionEscapesNULDELAndC1WithoutLoadingDependencies(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := (cli.Application{}).Execute([]string{"version"}, &stdout, &stderr, "v\x00\x7f\u0085")
+	if code != 0 || stdout.String() != "skope v\\x00\\x7f\\x85\n" || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}

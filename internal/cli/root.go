@@ -17,6 +17,7 @@ import (
 	"github.com/scarb/skope/internal/projection"
 	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
+	"github.com/scarb/skope/internal/termsafe"
 	"github.com/spf13/cobra"
 )
 
@@ -38,15 +39,38 @@ func Execute(args []string, stdout, stderr io.Writer, version string) int {
 // Execute runs this application with the given arguments and returns the
 // process exit code.
 func (a Application) Execute(args []string, stdout, stderr io.Writer, version string) int {
+	output := &errorTrackingWriter{writer: stdout}
 	root := newRootCmd(version, a.LoadSkillSets, a.RunLaunch)
 	root.SetArgs(args)
-	root.SetOut(stdout)
+	root.SetOut(output)
 	root.SetErr(stderr)
 
-	if err := root.Execute(); err != nil {
+	err := root.Execute()
+	if err == nil {
+		err = output.err
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %s\n", termsafe.Escape(err.Error()))
 		return 1
 	}
 	return 0
+}
+
+// Cobra's help handler discards writer errors; retain them for the exit status.
+type errorTrackingWriter struct {
+	writer io.Writer
+	err    error
+}
+
+func (w *errorTrackingWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if w.err == nil {
+		w.err = err
+	}
+	return n, err
 }
 
 func newRootCmd(version string, loadSkillSets listLoader, runLaunch launchRunner) *cobra.Command {
@@ -54,7 +78,7 @@ func newRootCmd(version string, loadSkillSets listLoader, runLaunch launchRunner
 		Use:           "skope",
 		Short:         "Launch coding agents with a session-scoped skill whitelist",
 		SilenceUsage:  true,
-		SilenceErrors: false,
+		SilenceErrors: true,
 	}
 	root.SetUsageTemplate(rootUsageTemplate)
 	root.AddCommand(newLaunchCmd(skill.AgentClaude, runLaunch), newListCmd(loadSkillSets), newVersionCmd(version))

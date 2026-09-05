@@ -290,7 +290,7 @@ func TestClaudeCommandReportsNoneWithoutInventorySummary(t *testing.T) {
 }
 
 func TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment(t *testing.T) {
-	root := filepath.Join("C:", "skope", "sessions", "preview")
+	root := filepath.Join(t.TempDir(), "skope", "sessions", "preview")
 	settingsPath := filepath.Join(root, "claude", "settings.json")
 	settings := []byte("{\n  \"skillOverrides\": {\n    \"review\": \"on\"\n  }\n}\n")
 	result := launch.Result{

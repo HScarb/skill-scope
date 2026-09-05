@@ -1165,7 +1165,7 @@ git commit -m "feat: orchestrate Claude projection and complete launch results"
 - Modify: `internal/cli/root_test.go`、`internal/cli/list_cmd_test.go`、`internal/cli/version_test.go`。
 - Create: `internal/cli/testdata/claude-summary.golden.txt`、`internal/cli/testdata/claude-dry-run.golden.txt`。
 
-- [ ] **Step 1: 写渲染与输出泄漏测试**
+- [x] **Step 1: 写渲染与输出泄漏测试**
 
 摘要 fixture 覆盖四状态、plugin missing、bundled、三类 collision、reap/projection warning。输出形状：
 
@@ -1190,13 +1190,13 @@ git commit -m "feat: orchestrate Claude projection and complete launch results"
 - JSON 内恶意 skill 名安全显示且原 Plan.Files 字节不变；stdout 失败仍返回 1。
 - Cobra 未知命令/参数错误不绕过安全出口，不重复打印 Error。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/cli -run 'TestRender|TestClaudeCommand|TestList|TestExecute|TestVersion' -v`
 
 Expected：原始文本、旧摘要与 dry-run 输出使新增断言 FAIL。
 
-- [ ] **Step 3: 统一渲染入口**
+- [x] **Step 3: 统一渲染入口**
 
 将 reportLaunch/reportResolution/reportWarnings/reportCollisions/reportDryRun/sessionRelativePath 从 launch_cmd.go 移到 render.go，命令文件只负责参数和 runner。外部字符串插值前用 termsafe.Escape，内部固定文本正常输出。
 
@@ -1212,7 +1212,7 @@ dry-run：
 
 list 在写进 tabwriter 前转义 Name/Description/缺失文件路径。version 中 ldflags 传入的字符串也视作外部数据。错误字段可能包含 `%q` 已引用内容，只保证最终不出现原始控制字符，不刻意还原后再转义。
 
-- [ ] **Step 4: 更新 golden 并回归**
+- [x] **Step 4: 更新 golden 并回归**
 
 ```sh
 go test ./internal/cli -run TestRender -update
@@ -1221,12 +1221,20 @@ go test ./internal/cli ./internal/termsafe -v
 
 Expected：PASS；只用当前包一个 `-update` flag（若已有则复用），golden 稳定化 session 根，不把随机目录固化进文件。检查 byte-level 测试确认危险控制字符不出现在外部字段输出中。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/cli .gitattributes
 git commit -m "feat: render complete and terminal-safe Claude launch previews"
 ```
+
+Task 15 执行记录（2026-09-06）：
+
+- 红灯：先新增 Application.Execute 黑盒矩阵，实测旧摘要缺 projected/unavailable/plugins/bundled、任意 Plan.Files 泄露 BODY_SENTINEL/OWNER_SENTINEL、list/version/warning/collision/error 原样输出控制符、Cobra help 写失败仍返回 0；随后最小实现并更新两份 golden。追加相对 session root 用例先失败，再要求根与文件路径均为绝对路径，旧测试中的 C: 相对 fixture 改用 t.TempDir。
+- 实现：展示函数集中到 internal/cli/render.go；四状态计数仅来自 launch.Summarize。真实 claude.Adapter.Plan fixture 的插件开关为 2 allowed / 2 disabled，与摘要交叉核对；补充 missing-plugin、三类 collision、reap/projection warning、bundled=false、全部具名 unavailable 原因。
+- 输出边界：所有外部字段逐项 Escape；root 单一安全 Error 出口；只跟踪 stdout 写错误，不全局转义或接管 handoff 输出。argv 保留空项/空格并逐项引用，Plan.Env 排序脱敏且不读取 Result.Env。owner.json/Plan.Files/ProjectionFiles 的有效相对路径取排序去重并集，仅展示 claude/settings.json 正文，无磁盘读取。有效生成 JSON 中的 bidi 展示转义且原始字节不变；none 没有 session/config 输出；逐行注入写失败验证退出码 1。
+- 验证：Windows go test ./internal/cli ./internal/termsafe -v -timeout 120s、go test -short ./... 通过；WSL 相同两包测试通过，执行既有真实 fake-agent 生产回归。golangci-lint v2.13.2 fmt（gofmt/goimports）及两包 run 为 0 issues，git diff --check 通过。CLI golden 复用已有 .gitattributes LF 规则。
+- 范围：只修改 CLI 展示、测试与本 Task 记录；冻结类型、AGENTS、真实配置与 Claude API 均未修改/调用。Windows full active 仍受既有 process/handoff 平台限制，本任务未扩展该能力；Task 16/17 留待后续。
 
 ### Task 16: fake agent 端到端与回归矩阵
 

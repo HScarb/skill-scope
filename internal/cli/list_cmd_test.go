@@ -31,6 +31,18 @@ func TestListReportsMissingConfiguration(t *testing.T) {
 	}
 }
 
+func TestListEscapesFieldsBeforeTabAlignment(t *testing.T) {
+	app := cli.Application{LoadSkillSets: func() (string, config.SkillSets, error) {
+		return "", config.SkillSets{Exists: true, Items: []config.SkillSet{{Name: "dev\x00\x7f", Description: "中\t文\u0085"}}}, nil
+	}}
+	var stdout, stderr bytes.Buffer
+	code := app.Execute([]string{"list"}, &stdout, &stderr, "")
+	if code != 0 || strings.Count(stdout.String(), "\n") != 2 || !strings.Contains(stdout.String(), `dev\x00\x7f  中\x09文\x85`) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	assertNoTerminalControls(t, stdout.String())
+}
+
 func TestListPrintsSkillSetsInConfigurationOrder(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	app := cli.Application{

@@ -1,0 +1,13 @@
+→ Skillset [dev] for claude
+  skills: 1 native, 1 projected, 1 unavailable, 1 missing
+           unavailable: unsafe (引用目录外内容)
+           missing: absent
+  plugins: 2 allowed, 2 disabled (Claude may enable dependencies of allowed plugins)
+  bundled: off
+  warning: reap: old session retained
+  warning: projection: source warning
+  warning: allowed plugin missing@m is not installed
+  collision different-content: IDs=native paths=/a/SKILL.md,/b/SKILL.md
+  collision frontmatter-name: IDs=foreign name=declared paths=/foreign/SKILL.md
+  collision effective-name: IDs=native,foreign agent=claude name=shared paths=/a/SKILL.md,/foreign/SKILL.md
+→ Launching claude
