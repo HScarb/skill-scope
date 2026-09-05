@@ -192,7 +192,7 @@ Expected：第 3、10 条均有结论；若还未完成，后续任务保持未�
 - Create: `internal/termsafe/escape.go`、`internal/termsafe/escape_test.go`。
 - Create: `internal/termsafe/redact.go`、`internal/termsafe/redact_test.go`。
 
-- [ ] **Step 1: 写黑盒测试**
+- [x] **Step 1: 写黑盒测试**
 
 ```go
 func TestEscapePreservesTextAndEscapesTerminalControls(t *testing.T) {
@@ -213,13 +213,13 @@ func TestEscapePreservesTextAndEscapesTerminalControls(t *testing.T) {
 
 另测所有 C0、DEL、C1、U+202A–U+202E、U+2066–U+2069；普通反斜杠保持原样；非法 UTF-8 不得变成原始控制字节。脱敏键大小写不敏感，七个词逐个覆盖；`monkey` 也含 key，按 spec 脱敏。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/termsafe -v`
 
 Expected：新增包/函数尚不存在导致 FAIL。
 
-- [ ] **Step 3: 实现纯函数**
+- [x] **Step 3: 实现纯函数**
 
 ```go
 func Escape(value string) string
@@ -231,18 +231,20 @@ func StderrExcerpt(raw []byte) string
 - `EnvValue` 先按 key 判定 `<redacted>`，否则 Escape(value)。`OPENCODE_CONFIG_CONTENT` 的整体值永远不从此函数展示，CLI 只展示专门的注入字段；本期 Plan.Env 为空。
 - `StderrExcerpt` 先截断原始输入至 2048 bytes（必要时退到完整 UTF-8 边界），再 Escape；被截断时加静态标记。不要先扩展转义后按任意字节切碎结果。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 Run: `go test ./internal/termsafe -v`
 
 Expected：PASS；2048/2049 bytes、空输入、边界多字节字符有断言。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/termsafe
 git commit -m "feat: escape terminal text and redact environment values"
 ```
+
+执行记录（2026-09-05）：按 Escape → EnvValue → StderrExcerpt 分三轮先写测试，分别运行 `go test ./internal/termsafe -v` 得到缺少非测试 Go 文件、未定义 EnvValue、未定义 StderrExcerpt 的预期红灯；各轮最小实现后同命令均 PASS。最终 `go test -short ./...` PASS；`gofmt`、`goimports` 与 `git diff --check` 通过。摘要采用固定 ` [truncated]` 标记，只读取原始前缀并线性扫描完整 UTF-8 边界。
 
 ### Task 4: fake agent 的 plugin 探测模式
 
