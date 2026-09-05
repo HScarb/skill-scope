@@ -427,6 +427,8 @@ git commit -m "feat: contain Windows auxiliary probes in a job"
 - 验证：Windows 四相关包、全库 `go test -short ./...`；WSL 四包（含生产配置 executable 的 fake probe/正常 handoff 集成）；golangci-lint v2.13.2（含 depguard 与 goimports）。没有调用真实 Claude 模型。
 - 提交统一使用 `feat: enumerate Claude plugins with launch-scoped adapters`，替代下面两个独立提交步骤。
 
+Task 7 独立审查修订（2026-09-05）：显式 Root 的 `rootNames` 起初把 Claude 的带 Scope 名称用于所有 VisibleTo；这是 spec §4.3 违约，旧测试中 Codex `app:check` 的期望亦不正确。先修正该期望并补 Claude/Codex/OpenCode、frontmatter 有值/缺失、非空 Scope 和 command 仅 Claude 的测试，观察失败；再让 Claude 保留 scope/namespace 名称，Codex/OpenCode 使用 frontmatter name、缺失时回退裸 basename。Windows 四相关包回归与 skill/claude 局部 golangci-lint（0 issues）通过；未接入 foreign 扫描。
+
 ### Task 7: Claude plugin JSON、三层 settings 与完整 inventory
 
 **Files:**

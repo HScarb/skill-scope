@@ -112,7 +112,6 @@ func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
 			return nil, fmt.Errorf("parse frontmatter %s: %w", discoveryPath, err)
 		}
 
-		id := scopedName(root.Scope, entry.Name())
 		locations = append(locations, Location{
 			Kind:            root.Kind,
 			DiscoveryPath:   discoveryPath,
@@ -123,7 +122,7 @@ func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
 			PluginID:        root.PluginID,
 			PluginAgent:     root.PluginAgent,
 			FrontmatterName: frontmatterName,
-			Names:           rootNames(root, id),
+			Names:           rootNames(root, entry.Name(), frontmatterName),
 		})
 	}
 	return locations, nil
@@ -186,7 +185,7 @@ func (s Scanner) walkCommands(root Root, directory string, isRoot bool, location
 			return fmt.Errorf("resolve command path %s from %s: %w", entryPath, root.Path, err)
 		}
 		commandName := strings.TrimSuffix(relative, path.Ext(relative))
-		id := scopedName(root.Scope, strings.ReplaceAll(commandName, "/", ":"))
+		name := strings.ReplaceAll(commandName, "/", ":")
 		*locations = append(*locations, Location{
 			Kind:          root.Kind,
 			DiscoveryPath: entryPath,
@@ -196,7 +195,7 @@ func (s Scanner) walkCommands(root Root, directory string, isRoot bool, location
 			Scope:         root.Scope,
 			PluginID:      root.PluginID,
 			PluginAgent:   root.PluginAgent,
-			Names:         rootNames(root, id),
+			Names:         rootNames(root, name, ""),
 		})
 	}
 	return nil
@@ -256,11 +255,21 @@ func scopedName(scope, name string) string {
 	return scope + ":" + name
 }
 
-func rootNames(root Root, name string) map[Agent]string {
+func rootNames(root Root, basename, frontmatterName string) map[Agent]string {
 	names := make(map[Agent]string, len(root.VisibleTo))
 	for _, agent := range root.VisibleTo {
-		if root.Kind != KindCommand || agent == AgentClaude {
-			names[agent] = scopedName(root.NamePrefix, name)
+		switch agent {
+		case AgentClaude:
+			names[agent] = scopedName(root.NamePrefix, scopedName(root.Scope, basename))
+		case AgentCodex, AgentOpenCode:
+			if root.Kind == KindCommand {
+				continue
+			}
+			name := frontmatterName
+			if name == "" {
+				name = basename
+			}
+			names[agent] = name
 		}
 	}
 	return names
