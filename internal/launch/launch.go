@@ -10,6 +10,7 @@ import (
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/config"
 	"github.com/scarb/skope/internal/host"
+	"github.com/scarb/skope/internal/projection"
 	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
 )
@@ -54,16 +55,26 @@ type Request struct {
 	AgentArgs  []string
 }
 
+type ProjectionFile struct {
+	ID   string
+	Path string // Absolute final target; never a staging path.
+}
+
+type PluginSummary struct{ Allowed, Disabled int }
+
 type Result struct {
-	Executable  string
-	Args        []string
-	Env         []string
-	Inventory   agent.Inventory
-	Resolved    skill.Resolved
-	Plan        agent.LaunchPlan
-	Session     *session.Session
-	Warnings    []error
-	NoIsolation bool
+	ProjectionFiles []ProjectionFile
+	Plugins         PluginSummary
+	Bundled         bool
+	Executable      string
+	Args            []string
+	Env             []string
+	Inventory       agent.Inventory
+	Resolved        skill.Resolved
+	Plan            agent.LaunchPlan
+	Session         *session.Session
+	Warnings        []error
+	NoIsolation     bool
 }
 
 type Reporter func(Result) error
@@ -75,6 +86,8 @@ type Service struct {
 	NewRegistry    RegistryFactory
 	CheckConflicts ConflictChecker
 	Foreign        ForeignScanner
+	Inspector      ProjectionInspector
+	Copier         ProjectionCopier
 	Resolver       ExecutableResolver
 	Sessions       SessionManager
 	Handoff        Handoff
@@ -119,10 +132,11 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 
 	baseArgs := joinArgs(agentConfig.Args, req.AgentArgs)
 	if len(selected) == 1 && selected[0] == "none" {
+		env := s.Env.Environ()
 		result := Result{
 			Executable:  executable,
 			Args:        baseArgs,
-			Env:         s.Env.Environ(),
+			Env:         env,
 			Warnings:    append([]error(nil), warnings...),
 			NoIsolation: true,
 		}
@@ -133,15 +147,15 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 			return fmt.Errorf("report launch: %w", err)
 		}
 		if req.DryRun {
-			return nil
+			return ctx.Err()
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.Handoff.Exec(executable, result.Args, result.Env); err != nil {
+		if err := s.Handoff.Exec(executable, baseArgs, env); err != nil {
 			return fmt.Errorf("handoff to %s: %w", req.Agent, err)
 		}
-		return nil
+		return ctx.Err()
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -193,7 +207,27 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 	if err != nil {
 		return fmt.Errorf("inventory %s: %w", req.Agent, err)
 	}
-	resolved := skill.ResolveNative(req.Agent, selection.Skills, inventory.Skills)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.Foreign == nil {
+		return errors.New("foreign scanner is required")
+	}
+	foreign, err := s.Foreign.ScanForeignGlobals(s.Env, projection.MaxBytes)
+	if err != nil {
+		return fmt.Errorf("scan foreign skills: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	inventory, rejections := mergeForeignInventory(inventory, foreign)
+	prepared, err := prepareProjection(ctx, req.Agent, selection.Skills, inventory.Skills, skill.ResolveOptions{
+		Projection: adapter.Capabilities().Projection, AllowedPlugins: selection.Plugins[string(req.Agent)],
+	}, rejections, s.Inspector)
+	if err != nil {
+		return err
+	}
+	resolved := prepared.Resolved
 
 	if err := ctx.Err(); err != nil {
 		return err
@@ -210,21 +244,54 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return s.abortIfStaged(req.DryRun, sess, err)
 	}
+	files, err := projectionFiles(sess, prepared)
+	if err != nil {
+		return s.abortIfStaged(req.DryRun, sess, err)
+	}
+	if !req.DryRun {
+		for _, projected := range prepared.Skills {
+			if err := ctx.Err(); err != nil {
+				return s.abort(sess, err)
+			}
+			if s.Copier == nil {
+				return s.abort(sess, errors.New("projection copier is required"))
+			}
+			sink, err := newProjectionSink(sess, s.Sessions, projected.Name)
+			if err != nil {
+				return s.abort(sess, err)
+			}
+			if err := s.Copier.Copy(ctx, projected.Manifest, sink); err != nil {
+				return s.abort(sess, fmt.Errorf("copy skill %q: %w", projected.ID, err))
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return s.abortIfStaged(req.DryRun, sess, err)
+	}
 	plan, err := adapter.Plan(resolved, inventory, sess)
 	if err != nil {
 		return s.abortIfStaged(req.DryRun, sess, fmt.Errorf("plan %s launch: %w", req.Agent, err))
 	}
 
 	args := joinArgs(baseArgs, plan.ControlArgs)
+	env := s.Env.With(plan.Env).Environ()
 	result := Result{
-		Executable: executable,
-		Args:       args,
-		Env:        s.Env.With(plan.Env).Environ(),
-		Inventory:  inventory,
-		Resolved:   resolved,
-		Plan:       plan,
-		Session:    sess,
-		Warnings:   append([]error(nil), warnings...),
+		ProjectionFiles: files,
+		Plugins:         summarizePlugins(inventory.PluginIDs, selection.Plugins[string(req.Agent)]),
+		Bundled:         selection.Bundled,
+		Executable:      executable,
+		Args:            args,
+		Env:             env,
+		Inventory:       inventory,
+		Resolved:        resolved,
+		Plan:            plan,
+		Session:         sess,
+		Warnings:        append([]error(nil), warnings...),
+	}
+	for _, projected := range prepared.Skills {
+		for _, warning := range projected.Manifest.Warnings {
+			result.Warnings = append(result.Warnings, fmt.Errorf("skill %q: %s", projected.ID, warning))
+		}
 	}
 	if req.DryRun {
 		if err := ctx.Err(); err != nil {
@@ -233,7 +300,7 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 		if err := report(cloneResult(result)); err != nil {
 			return fmt.Errorf("report launch: %w", err)
 		}
-		return nil
+		return ctx.Err()
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -257,8 +324,11 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 	if err := ctx.Err(); err != nil {
 		return s.abort(sess, err)
 	}
-	if err := s.Handoff.Exec(executable, result.Args, result.Env); err != nil {
+	if err := s.Handoff.Exec(executable, args, env); err != nil {
 		return s.abort(sess, fmt.Errorf("handoff to %s: %w", req.Agent, err))
+	}
+	if err := ctx.Err(); err != nil {
+		return s.abort(sess, err)
 	}
 	return nil
 }
@@ -309,6 +379,7 @@ func cloneResult(source Result) Result {
 	cloned.Resolved = cloneResolved(source.Resolved)
 	cloned.Plan = clonePlan(source.Plan)
 	cloned.Warnings = append([]error(nil), source.Warnings...)
+	cloned.ProjectionFiles = append([]ProjectionFile(nil), source.ProjectionFiles...)
 	if source.Session != nil {
 		cloned.Session = &session.Session{Root: source.Session.Root, Agent: source.Session.Agent}
 	}

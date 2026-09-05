@@ -439,6 +439,8 @@ func TestServiceRunChecksContextBeforeExternalSteps(t *testing.T) {
 		{name: "after reap", cancelAt: "reap", wantTail: []string{"reap"}},
 		{name: "after resolver", cancelAt: "lookpath", wantTail: []string{"lookpath"}},
 		{name: "after skillsets", cancelAt: "read skillsets.toml", wantTail: []string{"read skillsets.toml"}},
+		{name: "after conflict", cancelAt: "conflict", wantTail: []string{"conflict"}},
+		{name: "after factory", cancelAt: "factory", wantTail: []string{"factory"}},
 		{name: "after registry", cancelAt: "registry", wantTail: []string{"registry"}},
 		{name: "after inventory", cancelAt: "inventory", wantTail: []string{"inventory"}},
 		{name: "after stage", cancelAt: "stage", wantTail: []string{"stage", "abort"}, wantAbort: true},
@@ -612,6 +614,7 @@ func newFixture() *fixture {
 		SkopeHome:      "skope-home",
 		NewRegistry:    func(string, config.Selection) (AdapterRegistry, error) { f.record("factory"); return f.registry, nil },
 		CheckConflicts: func(skill.Agent, []string, []string) error { f.record("conflict"); return nil },
+		Foreign:        foreignScanFunc(func(host.Env, int64) (skill.ScanResult, error) { return skill.ScanResult{}, nil }),
 		Resolver:       f.resolver,
 		Sessions:       f.sessions,
 		Handoff:        f.handoff,
@@ -745,6 +748,7 @@ func (f *fakeSessions) Abort(sess *session.Session) error {
 }
 
 type fakeAdapter struct {
+	capabilities  agent.Capabilities
 	fixture       *fixture
 	inventory     agent.Inventory
 	inventoryErr  error
@@ -757,7 +761,7 @@ type fakeAdapter struct {
 
 func (*fakeAdapter) Name() skill.Agent { return skill.AgentClaude }
 
-func (*fakeAdapter) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (f *fakeAdapter) Capabilities() agent.Capabilities { return f.capabilities }
 
 func (f *fakeAdapter) Inventory(context.Context, host.Env) (agent.Inventory, error) {
 	f.fixture.record("inventory")
@@ -792,8 +796,9 @@ func completeInventory() agent.Inventory {
 	return agent.Inventory{
 		Skills: []skill.Skill{{ID: "one", Locations: []skill.Location{{
 			DiscoveryPath: "one/SKILL.md",
+			RealPath:      "one/SKILL.md",
 			Names:         map[skill.Agent]string{skill.AgentClaude: "one"},
-		}}}},
+		}, {DiscoveryPath: "other/one/SKILL.md", RealPath: "other/one/SKILL.md", Names: map[skill.Agent]string{skill.AgentClaude: "one"}}}}},
 		SkillNames: []string{"configured-name"},
 		PluginIDs:  []string{"plugin@marketplace"},
 		Collisions: []skill.Collision{{

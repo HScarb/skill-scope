@@ -1085,7 +1085,7 @@ git commit -m "feat: generate complete Claude isolation settings"
 - Modify: `internal/launch/render.go`。
 - Modify: `internal/cli/root.go`。
 
-- [ ] **Step 1: 更新编排记录型测试**
+- [x] **Step 1: 更新编排记录型测试**
 
 成功路径的固定顺序：
 
@@ -1101,13 +1101,13 @@ dry-run 从 resolve/inspect 后走 `Preview → Plan → Report`；无 Stage/Cop
 
 失败测试覆盖：factory、foreign、inspect、Stage、Copy、Plan、Write、Publish、Report、Handoff 与每个外部步骤间的 ctx 取消。Stage 之后失败恰好 Abort 一次；Preview 永不 Abort。旧 Phase 1 清理错误链和 reporter 不可变性测试继续执行。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/launch -run 'TestServiceRun|TestPrepareProjection' -v`
 
 Expected：旧 Run 没有投影步骤，FAIL。
 
-- [ ] **Step 3: 接入服务并保留输出白名单**
+- [x] **Step 3: 接入服务并保留输出白名单**
 
 将 Service 增加 Inspector/Copier 的消费方接口，CLI 注入 OS 文件系统实现。解析、manifest 与复制句柄只在本次调用存活；句柄关闭失败作为错误或 cleanup warning 保留，不泄漏到后续启动。
 
@@ -1131,18 +1131,30 @@ type PluginSummary struct {
 
 `cloneResult` 深复制 ProjectionFiles、全部原因/告警数据与现有 plan/inventory/resolved。Report 不得获得 Manifest.Source、投影文件内容或能操作 staging 的 Session；仍可获得 skope 生成的配置正文。实际 argv/env 仍在 Report 前独立保存，避免 reporter 改变 handoff。
 
-- [ ] **Step 4: 回归**
+- [x] **Step 4: 回归**
 
 Run: `go test ./internal/launch ./internal/agent/claude ./internal/session ./internal/projection ./internal/cli -v`
 
 Expected：PASS；active dry-run 恰好一次 plugin list、一次来源规划，所有 projected final path 与复制目标一致。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/launch internal/cli/root.go
 git commit -m "feat: orchestrate Claude projection and complete launch results"
 ```
+
+**Task 14 实测记录（2026-09-06）：**
+
+- 红灯：`TestServiceScansForeignBeforeSession` 缺少 foreign 事件；`TestServiceProjectsInSelectionOrderAndReportsFinalMetadata` 的 active/dry 两分支缺少 inspect/copy；inspect/copy 错误及取消被忽略；`TestSummarizeReportsAllResolutionStates` 的 projected/unavailable 计数缺失。补齐类型声明后先观察行为断言失败，再接入 Run。
+- 绿灯：顺序固定为 native/plugin inventory → foreign scan（恰 `projection.MaxBytes`）→ resolve/inspect → Stage → 按选择顺序 Copy → Plan → Write → Publish → Report → Handoff。dry-run 只用 Preview/Plan/Report；none 旁路 factory、skillsets、所有扫描/投影与 session 创建。foreign 的特殊/超限拒绝保留为 unavailable；native 优先；被拒高优先级来源之后仍尝试合法 foreign 来源。
+- 新增 `ProjectionFile`、`PluginSummary`、Bundled 与四状态 Summary；最终路径复用 projection sink 的校验/目标计算，未暴露 staging、Manifest、Source 或文件正文。Task 13 settings golden 的 2 true/2 false 与摘要交叉验证，允许/库存重复项去重。缺失插件文本沿用 Inventory.Warnings；manifest warnings 带 skill ID。
+- 保留全部 Phase 1 清理和 reporter 不可变性测试；新增 foreign/inspect/双 Copy/最终 handoff 取消与失败矩阵。Stage 后错误恰好 Abort 一次并保留原错误与 Abort 错误；真实 Copier 的源根 Close 失败阻断 Plan/Report/Handoff 并删除 staging。Report 修改 argv/env、配置字节、Resolution.Location、ProjectionFiles、Session 字段不影响实际参数/文件；展示 Session 不能 Abort live session。none 最后一步取消也返回 context.Canceled。
+- 额外修改 `internal/cli/launch_cmd.go` 仅将旧输出接到 `launch.Summarize`，完整四状态/插件/输出转义文本留 Task 15。新增 `internal/launch/orchestration_test.go`、`internal/cli/projection_test.go`，扩展 CLI integration test 并隔离 CODEX_HOME。
+- **已授权偏差：Windows Junction 前序扫描修复。** 永久 `TestOSFileSystemRecognizesAndResolvesJunction` 修复前实测 `? alias`（非目录、无 ModeSymlink）与 EvalSymlinks“系统找不到路径”。OSFileSystem 和 ProjectionRoot 共用已有 `evalLinks`；host Windows ReadDir 仅把可经 Readlink 确认的 reparse entry 标成链接候选，不把任意 ModeIrregular 当目录。新增 `fs_windows.go/fs_unix.go/fs_windows_test.go` 与 `skill/scan_links_test.go`；native/foreign 扫描、broken junction fail-closed、命令目录不递归链接、active dry-run 的真实 Junction 名称及 RealPath 均通过。无 skill 核心 GOOS 分支、无全局 GODEBUG 变更。
+- **已授权偏差：新增 plugin 来源的特殊入口阻塞。** WSL `TestScanPluginSpecialEntryDoesNotBlock` 修复前在被禁 plugin 的 FIFO SKILL.md 上阻塞，3 秒子进程 deadline 将其终止；修复后 0.005 秒通过。`scanSkillRoot` 经 `readSkillFile` 先检查普通文件，生产使用现有非阻塞 OpenRegular/io.ReadAll，保留 open/read/close I/O 错误且不新增 native 字节上限。未配置 opener 的旧 fake 保持 ReadFile 路径，但静态特殊文件仍不读取。新增 `scan_regular_test.go/scan_special_unix_test.go`；旧 mapFS.Stat 补齐与 ReadFile 一致的显式映射语义。
+- Windows：七包 `go test ./internal/launch ./internal/agent/claude ./internal/session ./internal/projection ./internal/host ./internal/skill ./internal/cli -count=1 -timeout 120s`、`go test -short ./... -count=1` 通过。生产装配的真实 fake probe + Junction dry-run 通过；真实文件复制另用受控 process token 和 fake handoff 验证。生产 Windows active 仍在既有 process inspection 阶段返回 unsupported，最终 handoff 仍属 Phase 6，本批未扩展。
+- WSL Ubuntu 使用既有离线 Go 1.24 运行相同七包全量与 `-race` 均通过，包含生产 active foreign 复制、最终 --add-dir、真实 fake-agent exec 及旧回归；未调用真实 Claude API。固定 v2.13.2 golangci-lint `fmt`（gofmt/goimports）、`run ./...` 为 0 issues，`git diff --check` 通过。
 
 ### Task 15: 完整摘要、dry-run 与全部输出边界
 

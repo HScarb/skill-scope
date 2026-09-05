@@ -101,18 +101,12 @@ func selectedDisplayName(value string, noIsolation bool) (string, error) {
 }
 
 func reportResolution(writer io.Writer, result launch.Result) error {
-	native := result.Resolved.Count(skill.StateNative)
-	missing := result.Resolved.Count(skill.StateMissing)
-	if _, err := fmt.Fprintf(writer, "  skills: %d native, %d missing\n", native, missing); err != nil {
+	summary := launch.Summarize(result.Resolved)
+	if _, err := fmt.Fprintf(writer, "  skills: %d native, %d missing\n", summary.Native, len(summary.Missing)); err != nil {
 		return err
 	}
 
-	missingIDs := make([]string, 0, missing)
-	for _, entry := range result.Resolved.Entries {
-		if entry.State == skill.StateMissing {
-			missingIDs = append(missingIDs, entry.ID)
-		}
-	}
+	missingIDs := summary.Missing
 	if len(missingIDs) == 0 {
 		return nil
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/scarb/skope/internal/host"
 	"github.com/scarb/skope/internal/launch"
 	"github.com/scarb/skope/internal/proc"
+	"github.com/scarb/skope/internal/projection"
 	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
 	"github.com/spf13/cobra"
@@ -111,6 +112,7 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 
 	fsys := host.OSFileSystem{}
 	scanner := skill.Scanner{FS: fsys, RegularFiles: fsys}
+	openRoot := func(dir string) (projection.Root, error) { return host.OpenProjectionRoot(dir) }
 	service := launch.Service{
 		Env:       env,
 		FS:        fsys,
@@ -121,6 +123,8 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 		},
 		CheckConflicts: CheckConflicts,
 		Foreign:        scanner,
+		Inspector:      projection.Inspector{OpenRoot: openRoot},
+		Copier:         projection.Copier{OpenRoot: openRoot},
 		Resolver:       host.ExecutableResolver{},
 		Sessions:       session.NewManager(skopeHome),
 		Handoff:        handoff.Handoff{},

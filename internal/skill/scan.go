@@ -3,6 +3,7 @@ package skill
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"slices"
@@ -96,7 +97,7 @@ func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
 			}
 		}
 		discoveryPath := joinPath(root.Path, entry.Name(), "SKILL.md")
-		contents, err := s.FS.ReadFile(discoveryPath)
+		contents, err := s.readSkillFile(discoveryPath)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) && !isSymlink {
 				_, lstatErr := s.FS.Lstat(discoveryPath)
@@ -132,6 +133,28 @@ func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
 		})
 	}
 	return locations, nil
+}
+
+// Native skill files have no byte limit, but special files must never be read.
+// The optional regular opener also prevents a stat-to-open FIFO replacement
+// from blocking production scanners.
+func (s Scanner) readSkillFile(name string) (contents []byte, err error) {
+	info, err := s.FS.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, host.ErrNotRegular
+	}
+	if s.RegularFiles == nil {
+		return s.FS.ReadFile(name)
+	}
+	file, err := s.RegularFiles.OpenRegular(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	return io.ReadAll(file)
 }
 
 func (s Scanner) scanCommandRoot(root Root) ([]Location, error) {

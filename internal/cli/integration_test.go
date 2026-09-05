@@ -296,6 +296,7 @@ func (f *integrationFixture) run(t *testing.T, args []string, extraEnv map[strin
 		"HOME":                  f.home,
 		"SKOPE_HOME":            f.skopeHome,
 		"CLAUDE_CONFIG_DIR":     f.claudeConfig,
+		"CODEX_HOME":            filepath.Join(f.home, ".codex"),
 		"FAKEAGENT_OUT":         f.fakeOutput,
 		"FAKEAGENT_EXIT":        "0",
 		"FAKEAGENT_PLUGIN_JSON": "[]",
@@ -515,5 +516,75 @@ func TestIntegrationProbeFailureAndConflictStopBeforeStage(t *testing.T) {
 				t.Fatalf("probe ran on conflict: %v", err)
 			}
 		})
+	}
+}
+
+func TestIntegrationForeignProjectionCopiesTreeAndHandsOffFinalPaths(t *testing.T) {
+	requireUnixIntegration(t)
+	f := newIntegrationFixture(t)
+	source := filepath.Join(f.root, "foreign-source")
+	for _, name := range []string{"SKILL.md", "refs/note.md"} {
+		p := filepath.Join(source, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, p, "body "+name)
+	}
+	entry := filepath.Join(f.home, ".agents", "skills", "foreign")
+	if err := os.MkdirAll(filepath.Dir(entry), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(source, entry); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(f.skopeHome, "skillsets.toml"), "version=1\n[skillsets.dev]\nskills=['foreign','allowed']\n")
+	output, code := f.run(t, []string{"claude", "-s", "dev"}, nil)
+	if code != 0 {
+		t.Fatalf("code=%d output=%s", code, output)
+	}
+	record := readFakeRecord(t, f.fakeOutput)
+	index := -1
+	for i, arg := range record.Args {
+		if arg == "--add-dir" {
+			if index != -1 {
+				t.Fatal("duplicate add-dir")
+			}
+			index = i
+		}
+	}
+	if index < 0 || index+1 >= len(record.Args) {
+		t.Fatalf("args=%v", record.Args)
+	}
+	addDir := record.Args[index+1]
+	if !filepath.IsAbs(addDir) || strings.Contains(addDir, ".staging-") {
+		t.Fatalf("addDir=%s", addDir)
+	}
+	for _, name := range []string{"SKILL.md", "refs/note.md"} {
+		p := filepath.Join(addDir, ".claude", "skills", "foreign", filepath.FromSlash(name))
+		data, err := os.ReadFile(p)
+		if err != nil || string(data) != "body "+name {
+			t.Fatalf("copy=%q err=%v", data, err)
+		}
+		info, err := os.Lstat(p)
+		if err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("not regular: %v %v", info, err)
+		}
+	}
+	for i, arg := range record.Args {
+		if arg == "--settings" {
+			data, err := os.ReadFile(record.Args[i+1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var generated struct {
+				SkillOverrides map[string]string `json:"skillOverrides"`
+			}
+			if err := json.Unmarshal(data, &generated); err != nil {
+				t.Fatal(err)
+			}
+			if generated.SkillOverrides["foreign"] != "on" || generated.SkillOverrides["allowed"] != "on" {
+				t.Fatalf("settings=%s", data)
+			}
+		}
 	}
 }

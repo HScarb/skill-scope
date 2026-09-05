@@ -19,7 +19,7 @@ type projectionSink struct {
 	prefix  string
 }
 
-func newProjectionSink(sess *session.Session, manager SessionManager, name string) (projection.Sink, error) {
+func newProjectionSink(sess *session.Session, manager SessionManager, name string) (*projectionSink, error) {
 	if name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, `/\:`) || !filepath.IsLocal(name) {
 		return nil, fmt.Errorf("invalid projection directory name %q", name)
 	}
@@ -51,6 +51,10 @@ func (s *projectionSink) WriteFile(relative string, data []byte) error {
 
 type ProjectionInspector interface {
 	Inspect(context.Context, string) (projection.Manifest, *projection.Rejection, error)
+}
+
+type ProjectionCopier interface {
+	Copy(context.Context, projection.Manifest, projection.Sink) error
 }
 
 type preparedSkillProjection struct {
@@ -87,6 +91,9 @@ func prepareProjection(ctx context.Context, target skill.Agent, selected []strin
 	}
 	manifests := make(map[projectionLocationKey]projection.Manifest)
 	check := func(loc skill.Location) (skill.ResolutionReason, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		key := projectionLocationKey{loc.Source, loc.DiscoveryPath}
 		if reason, ok := rejected[key]; ok {
 			return reason, nil
@@ -97,6 +104,9 @@ func prepareProjection(ctx context.Context, target skill.Agent, selected []strin
 		directory := filepath.Dir(filepath.FromSlash(loc.DiscoveryPath))
 		manifest, rejection, err := inspector.Inspect(ctx, directory)
 		if err != nil {
+			return "", err
+		}
+		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 		if rejection != nil {
@@ -129,6 +139,24 @@ func prepareProjection(ctx context.Context, target skill.Agent, selected []strin
 		})
 	}
 	return prepared, nil
+}
+
+func projectionFiles(sess *session.Session, prepared preparedProjection) ([]ProjectionFile, error) {
+	var files []ProjectionFile
+	for _, projected := range prepared.Skills {
+		sink, err := newProjectionSink(sess, nil, projected.Name)
+		if err != nil {
+			return nil, err
+		}
+		for _, file := range projected.Manifest.Files {
+			target, err := sink.target(file.Path, false)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, ProjectionFile{ID: projected.ID, Path: target})
+		}
+	}
+	return files, nil
 }
 
 func projectionRejectionReason(reason string) (skill.ResolutionReason, error) {

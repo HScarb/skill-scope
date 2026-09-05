@@ -16,7 +16,7 @@ type ProjectionRoot struct {
 }
 
 func OpenProjectionRoot(directory string) (*ProjectionRoot, error) {
-	resolved, err := evalProjectionLinks(directory)
+	resolved, err := evalLinks(directory)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (r *ProjectionRoot) Resolve(name string) (string, bool, error) {
 	if !fs.ValidPath(name) || !filepath.IsLocal(filepath.FromSlash(name)) {
 		return "", false, nil
 	}
-	resolved, err := evalProjectionLinks(filepath.Join(r.directory, filepath.FromSlash(name)))
+	resolved, err := evalLinks(filepath.Join(r.directory, filepath.FromSlash(name)))
 	if err != nil {
 		// EvalSymlinks loses ELOOP on some platforms; Stat retains the OS error.
 		_, statErr := os.Stat(filepath.Join(r.directory, filepath.FromSlash(name)))

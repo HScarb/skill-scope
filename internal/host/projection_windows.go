@@ -18,7 +18,7 @@ func projectionLinkLoop(err error) bool {
 
 // Go 1.24's winsymlink compatibility mode hides junctions from EvalSymlinks.
 // Read reparse metadata explicitly; never open a target's contents to resolve it.
-func evalProjectionLinks(name string) (string, error) {
+func evalLinks(name string) (string, error) {
 	absolute, err := filepath.Abs(name)
 	if err != nil {
 		return "", err

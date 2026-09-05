@@ -18,4 +18,4 @@ func openProjectionNode(root *os.Root, name string) (*os.File, error) {
 
 func projectionLinkLoop(err error) bool { return errors.Is(err, syscall.ELOOP) }
 
-func evalProjectionLinks(name string) (string, error) { return filepath.EvalSymlinks(name) }
+func evalLinks(name string) (string, error) { return filepath.EvalSymlinks(name) }

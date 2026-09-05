@@ -532,6 +532,9 @@ func (m *mapFileSystem) Stat(name string) (fs.FileInfo, error) {
 	if mapped, ok := m.files[mapKey(name)]; ok && mapped.Mode&fs.ModeSymlink != 0 {
 		return fs.Stat(m.files, mapKey(symlinkTarget(name, string(mapped.Data))))
 	}
+	if mapped, ok := m.files[mapKey(name)]; ok {
+		return mapFileInfo{name: path.Base(name), size: int64(len(mapped.Data)), mode: mapped.Mode}, nil
+	}
 	return fs.Stat(m.files, mapKey(name))
 }
 
