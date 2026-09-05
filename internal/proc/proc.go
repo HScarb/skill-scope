@@ -18,8 +18,6 @@ const (
 	stderrPrefixLimit        = 2 << 10
 )
 
-var ErrUnsupported = errors.New("auxiliary process containment is not supported on this platform")
-
 type Request struct {
 	Executable string
 	Args       []string

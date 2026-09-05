@@ -377,20 +377,20 @@ git commit -m "feat: bound auxiliary processes and terminate Unix process groups
 **Files:**
 
 - Modify: `internal/proc/process_windows.go`。
-- Create: `internal/proc/process_windows_test.go`。
+- Create: `internal/proc/process_windows_test.go`、`internal/proc/process_tree_test.go`；调整 `proc_test.go` / `process_unix_test.go`，共用后代行为测试。
 - Verify only: `internal/handoff/handoff_windows.go`（保持 ErrUnsupported）。
 
-- [ ] **Step 1: 写 Windows 行为测试**
+- [x] **Step 1: 写 Windows 行为测试**
 
 同 Task 5 的 helper 协议，增加：子进程及孙进程超时后退出、输出超限终止树、父进程先退出而孙进程持有输出管道、带空格/引号/空字符串参数、环境变量值包含 `=`、取消时所有句柄归还。Job 创建或赋值失败必须不启动可执行的 probe。
 
-- [ ] **Step 2: 在 Windows 运行红灯**
+- [x] **Step 2: 在 Windows 运行红灯**
 
 Run: `go test ./internal/proc -run 'TestRunner|TestWindows' -v`
 
 Expected：上一 Task 的 unsupported 导致 FAIL。
 
-- [ ] **Step 3: 实现 Windows 平台后端**
+- [x] **Step 3: 实现 Windows 平台后端**
 
 使用固定版本 `golang.org/x/sys/windows` 的本地源码核对调用签名，补充需要的官方文档查询后实现：
 
@@ -402,18 +402,20 @@ Expected：上一 Task 的 unsupported 导致 FAIL。
 
 参考：[Microsoft 的创建时 Job 绑定说明](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812)、[Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)。这里只落实 §9.2，不复制 §8.4 的最终交接流程。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 Run: `go test ./internal/proc -v`
 
 Expected：Windows helper 树终止测试 PASS；Linux/macOS 后续 CI 继续执行 Unix 实现。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/proc
 git commit -m "feat: contain Windows auxiliary probes in a job"
 ```
+
+实施记录（2026-09-05）：解除 Windows skip 后，共用正常运行与 Windows 参数、环境值、脚本拒绝测试先因 ErrUnsupported 失败。实现独立 Job 与创建时 JOB_LIST 绑定；仅复制三个标准句柄，UTF-16 显式环境块、NUL stdin、CREATE_NO_WINDOW。Windows `go test ./internal/proc -v -timeout 90s`、`go test -short ./...`、局部 golangci-lint（0 issues）通过；WSL `go test -race ./internal/proc -timeout 90s` 通过，gofmt/goimports 完成。实测覆盖后代取消/超时/超限、父先退出持有或不持有 pipe、20 轮正常/超时/取消/创建失败句柄归还、空/含引号参数和空格 exe 路径、空环境及含等号/中文值。隔离 helper 进入 active-process-limit=1 外层 Job 后，Runner 返回 ContainmentError 且 probe marker 未创建。Windows TCP 后代测试显式传 SystemRoot 供 Winsock 初始化，以 EOF/WSAECONNRESET 确认连接结束；生产不补环境变量。当前 Windows 已验证创建时绑定；旧系统或约束不允许时返回类型化错误，不作无 Job 降级。handoff_windows.go 保持 ErrUnsupported。
 
 ### Task 7: Claude plugin JSON、三层 settings 与完整 inventory
 

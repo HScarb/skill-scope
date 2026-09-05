@@ -2,6 +2,7 @@ package proc_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,13 +25,6 @@ func helperRequest(t *testing.T, mode string, args ...string) proc.Request {
 		t.Fatal(err)
 	}
 	return proc.Request{Executable: exe, Args: append([]string{"-test.run=^TestProcHelperProcess$", "--", mode}, args...), Env: []string{"PROBE_VALUE=explicit"}}
-}
-
-func requireBackend(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("Task 6 implements the Windows Job backend")
-	}
 }
 
 func TestRunnerDefaultsAndInvalidConfiguration(t *testing.T) {
@@ -64,20 +57,15 @@ func TestRunnerDoesNotStartAfterCancellation(t *testing.T) {
 	}
 }
 
-func TestRunnerReportsUnavailableExecutableOrBackend(t *testing.T) {
+func TestRunnerReportsUnavailableExecutable(t *testing.T) {
 	req := proc.Request{Executable: filepath.Join(t.TempDir(), "missing-probe"), Env: []string{}}
 	_, err := (proc.Runner{}).Run(context.Background(), req)
-	if runtime.GOOS == "windows" {
-		if !errors.Is(err, proc.ErrUnsupported) {
-			t.Fatalf("error = %v", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("error = %v", err)
 	}
 }
 
 func TestRunnerCapturesStreamsAndUsesExplicitEnvironmentDirectoryAndEOF(t *testing.T) {
-	requireBackend(t)
 	t.Setenv("PROBE_PARENT_SECRET", "parent-secret")
 	req := helperRequest(t, "success")
 	req.Dir = t.TempDir()
@@ -85,12 +73,20 @@ func TestRunnerCapturesStreamsAndUsesExplicitEnvironmentDirectoryAndEOF(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDir, err := filepath.EvalSymlinks(req.Dir)
+	lines := strings.Split(string(result.Stdout), "\n")
+	if len(lines) != 5 || lines[0] != "explicit" || lines[1] != "" || lines[3] != "0" || lines[4] != "" || string(result.Stderr) != "stderr" {
+		t.Fatalf("result = %+v", result)
+	}
+	wantDir, err := os.Stat(req.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(result.Stdout) != "explicit\n\n"+wantDir+"\n0\n" || string(result.Stderr) != "stderr" {
-		t.Fatalf("result = %+v", result)
+	gotDir, err := os.Stat(lines[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(wantDir, gotDir) {
+		t.Fatalf("directory = %q, want %q", lines[2], req.Dir)
 	}
 	req.Env = []string{}
 	result, err = (proc.Runner{}).Run(context.Background(), req)
@@ -100,7 +96,6 @@ func TestRunnerCapturesStreamsAndUsesExplicitEnvironmentDirectoryAndEOF(t *testi
 }
 
 func TestRunnerReturnsTypedExitWithBoundedRawStderr(t *testing.T) {
-	requireBackend(t)
 	_, err := (proc.Runner{}).Run(context.Background(), helperRequest(t, "exit", "argv-secret"))
 	var exitErr *proc.ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 7 {
@@ -117,7 +112,6 @@ func TestRunnerReturnsTypedExitWithBoundedRawStderr(t *testing.T) {
 }
 
 func TestRunnerBoundsEachStreamIndependently(t *testing.T) {
-	requireBackend(t)
 	for _, tc := range []struct {
 		name, stream string
 		count        int
@@ -148,7 +142,6 @@ func TestRunnerBoundsEachStreamIndependently(t *testing.T) {
 }
 
 func TestRunnerTimeoutAndEarlierContextDeadline(t *testing.T) {
-	requireBackend(t)
 	for _, tc := range []struct {
 		name           string
 		timeout        time.Duration
@@ -174,6 +167,8 @@ func TestProcHelperProcess(_ *testing.T) {
 	}
 	mode := os.Args[3]
 	switch mode {
+	case "arguments":
+		_ = json.NewEncoder(os.Stdout).Encode(os.Args[4:])
 	case "success":
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -209,12 +204,19 @@ func TestProcHelperProcess(_ *testing.T) {
 		time.Sleep(30 * time.Second)
 	case "tree", "tree-output", "tree-exit", "tree-no-pipes":
 		cmd := exec.Command(os.Args[0], "-test.run=^TestProcHelperProcess$", "--", "descendant", os.Args[4], os.Args[5])
+		configureTreeChild(cmd)
 		cmd.Env = []string{}
+		// Windows Winsock needs SystemRoot to load its provider. The tree test
+		// explicitly supplies it; the runner itself never adds environment keys.
+		if systemRoot, ok := os.LookupEnv("SystemRoot"); ok {
+			cmd.Env = append(cmd.Env, "SystemRoot="+systemRoot)
+		}
 		if mode != "tree-no-pipes" {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
 		if err := cmd.Start(); err != nil {
+			fmt.Fprint(os.Stderr, err)
 			os.Exit(14)
 		}
 		// The parent deliberately exits without waiting for its descendant.
@@ -238,6 +240,7 @@ func TestProcHelperProcess(_ *testing.T) {
 	case "descendant":
 		conn, err := net.DialTimeout("tcp", os.Args[4], 5*time.Second)
 		if err != nil {
+			fmt.Fprint(os.Stderr, err)
 			os.Exit(16)
 		}
 		if _, err := conn.Write([]byte{1}); err != nil {
