@@ -342,6 +342,22 @@ skillsets.first.skills = []`,
 			want: []string{"second", "first"},
 		},
 		{
+			name: "relative inline keys under skillsets table",
+			data: `version = 1
+[skillsets]
+second = { skills = [], plugins = { claude = ["sample@market"] } }
+"foo.bar" = { skills = [] }`,
+			want: []string{"second", "foo.bar"},
+		},
+		{
+			name: "relative dotted keys under skillsets table",
+			data: `version = 1
+[skillsets]
+second.skills = []
+first.skills = []`,
+			want: []string{"second", "first"},
+		},
+		{
 			name: "inline table skips comment nodes",
 			data: `version = 1
 skillsets = { # comment

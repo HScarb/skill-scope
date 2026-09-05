@@ -252,12 +252,18 @@ func skillSetOrder(data []byte) ([]string, error) {
 		order = append(order, name)
 	}
 
+	var tableKey []string
 	for parser.NextExpression() {
 		expr := parser.Expression()
 		if expr.Kind != unstable.Table && expr.Kind != unstable.KeyValue {
 			continue
 		}
 		key := nodeKey(expr)
+		if expr.Kind == unstable.Table {
+			tableKey = key
+		} else {
+			key = append(append([]string(nil), tableKey...), key...)
+		}
 		if len(key) >= 2 && key[0] == "skillsets" {
 			add(key[1])
 			continue
