@@ -93,6 +93,27 @@ func TestScannerFindsEveryProjectScopeFromNearestGitRoot(t *testing.T) {
 	}
 }
 
+func TestScannerPreservesRepeatedCommandDirectoryNames(t *testing.T) {
+	t.Parallel()
+	files := fstest.MapFS{
+		"repo/.git": dir(),
+		"repo/apps/web/.claude/commands/review.md":               file("root review"),
+		"repo/apps/web/.claude/commands/team/commands/review.md": file("nested review"),
+	}
+	result, err := (skill.Scanner{FS: newMapFS(files)}).ScanClaude(host.NewEnv("/home/me", "/repo/apps/web", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"apps/web:review", "apps/web:team:commands:review"}
+	if got := skillIDs(result.Skills); !reflect.DeepEqual(got, want) {
+		t.Fatalf("IDs = %v, want %v", got, want)
+	}
+	resolved := skill.ResolveNative(skill.AgentClaude, want[:1], result.Skills)
+	if got := resolved.AllowedNames(); !reflect.DeepEqual(got, want[:1]) {
+		t.Fatalf("allowed names = %v, want only %v", got, want[:1])
+	}
+}
+
 func TestScannerUsesOnlyCwdWithoutGitRoot(t *testing.T) {
 	t.Parallel()
 

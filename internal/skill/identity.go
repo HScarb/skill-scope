@@ -56,6 +56,10 @@ func locationID(location Location) string {
 	discoveryPath := strings.ReplaceAll(location.DiscoveryPath, "\\", "/")
 	var name string
 	if location.Kind == KindCommand {
+		// The scanner resolves the command namespace relative to its discovery root.
+		if effectiveName := location.Names[AgentClaude]; effectiveName != "" {
+			return effectiveName
+		}
 		name = commandName(discoveryPath)
 	} else {
 		name = path.Base(path.Dir(discoveryPath))
