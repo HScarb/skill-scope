@@ -1,0 +1,8 @@
+{
+  "skillOverrides": {
+    "alpha": "off",
+    "beta": "on",
+    "legacy": "on",
+    "stale": "off"
+  }
+}

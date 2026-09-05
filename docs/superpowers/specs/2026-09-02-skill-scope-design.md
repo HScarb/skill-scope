@@ -112,12 +112,13 @@ type Location struct {
 - **同 ID 合并**：同一 ID 的多个发现入口视为同一逻辑 skill 的多个 location。command 与 skill 同 ID 也合并，`Kind` 由各 location 携带。
 - **不按 realpath 去重**：Junction 把同一目录同时挂到 `.claude/skills/foo` 和 `.agents/skills/foo` 时，两个入口都保留，否则启动 Codex 时会误判 unavailable。`RealPath` 相同的入口在 `skope skills` 中标注「同一目标」。
 - **有效名**：`Names[claude]` = 目录名加作用域前缀；`Names[codex]`、`Names[opencode]` = `FrontmatterName`，缺失时回退目录名。只为该入口可见的 agent 填写。
+- **frontmatter 解析**：`SKILL.md` 第一行不是 `---` 时视为没有 frontmatter；合法 frontmatter 没有 `name` 时 `FrontmatterName` 为空。第一行是 `---` 但 YAML 非法、缺少结束分隔符或 `name` 不是字符串时 fail-closed，错误必须包含该 `SKILL.md` 的 `DiscoveryPath`。选择 fail-closed，因为 Codex/OpenCode 的有效名依赖该字段，静默回退会让白名单命中错误对象。
 - **选择语义**：skill set 选中一个 ID，即在每个 agent 上开启该 ID 全部可见 location 的有效名。不提供按路径限定选择的语法。
 - **碰撞告警**（`skope skills` 与启动摘要均报告）：
   - 同 ID 多入口且 `RealPath` 不同：内容可能不一致。
   - `FrontmatterName` 与目录名不一致。
   - 不同 ID 在同一 agent 上有效名相同（如根级 `verify` 与 `apps/web:verify` 在 OpenCode 中都叫 `verify`）：允许其一即允许两者，agent 自身按其规则取其一。
-- **Location 优先级**：项目级高于全局级；同级按 `claude > agents > codex > opencode > opencode-paths`；plugin 级最低。
+- **Location 优先级**：层级按 `project > global > admin > plugin`；同级按 `claude > agents > codex > opencode > opencode-paths`。admin `/etc/codex` 低于用户全局配置，但仍是 agent 原生入口，优先于不可跨 agent 投影的 plugin。若 Phase 3 的真实 Codex 验证推翻该顺序，必须先修订本文档再调整实现。
 
 ### 4.4 可见性与投影判定
 
@@ -463,6 +464,7 @@ Windows 上正常退出立即清理；崩溃残留由回收兜底。Windows 不�
 | -s 名字不存在 | 报错并列出可用名 | 1 |
 | 扫描 ENOENT | 跳过 | 沿用 agent |
 | 扫描 EACCES 等其他 I/O 错误 | fail-closed | 1 |
+| `SKILL.md` frontmatter 已起始但 YAML 非法、缺结束分隔符或 `name` 非字符串 | fail-closed，报错含 `SKILL.md` discovery path | 1 |
 | OpenCode 配置文件存在但解析失败 | fail-closed | 1 |
 | 已有 `OPENCODE_CONFIG_CONTENT` 非法 JSON | fail-closed | 1 |
 | `claude plugin list` 失败、超时、超限或 JSON 非法 | fail-closed | 1 |
