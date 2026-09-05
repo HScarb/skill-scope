@@ -88,7 +88,7 @@ func (s *inspection) walk(source, target string, ancestors []fs.FileInfo) (*Reje
 			return &Rejection{Reason: "invalid-path", Path: target}, nil
 		}
 		next := path.Join(target, entry.Name())
-		if path.Base(target) == ".claude-plugin" && entry.Name() == "plugin.json" {
+		if strings.EqualFold(path.Base(target), ".claude-plugin") && strings.EqualFold(entry.Name(), "plugin.json") {
 			return &Rejection{Reason: "plugin-manifest", Path: next}, nil
 		}
 		if r, err := s.walk(path.Join(source, entry.Name()), next, append(ancestors, info)); r != nil || err != nil {

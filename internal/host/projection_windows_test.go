@@ -99,3 +99,12 @@ func TestProjectionRootRejectsWindowsJunctionLoops(t *testing.T) {
 		t.Fatalf("reject=%+v err=%v", reject, err)
 	}
 }
+
+func TestProjectionRootRejectsWindowsPluginManifestCaseVariant(t *testing.T) {
+	dir := t.TempDir()
+	writeProjectionFile(t, filepath.Join(dir, ".CLAUDE-PLUGIN", "PLUGIN.JSON"), "{}")
+	_, reject, err := projectionInspector().Inspect(context.Background(), dir)
+	if err != nil || reject == nil || reject.Reason != "plugin-manifest" {
+		t.Fatalf("reject=%+v err=%v", reject, err)
+	}
+}

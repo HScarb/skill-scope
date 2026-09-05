@@ -826,6 +826,8 @@ git commit -m "feat: inspect self-contained skill projection manifests"
 
 Task 10 审查修复（2026-09-05）：补充 `TestInspectHonorsCancellationBeforeReturning`，确定性覆盖最后一次空目录 ReadDir 内取消、Root.Close 内取消、取消与 ReadDir/Close I/O 错误同时存在三种情况；修复前均不能由 `errors.Is(err, context.Canceled)` 判定取消。Inspect 的 defer 现先执行 Close，再合并原错误、closeErr 和 ctx.Err，三个用例转绿且保留两个原 I/O 错误。`go test ./internal/projection ./internal/host`、局部 golangci-lint（0 issues）、goimports/gofmt 与 diff check 通过；未扩大生产修改范围。
 
+Task 10 大小写审查修复（2026-09-05）：四个 fake 文件系统用例覆盖插件目录大写、清单文件大写、两者大写和递归混合大小写，Windows 真实 `.CLAUDE-PLUGIN/PLUGIN.JSON` 用例也先观察到被错误接受。插件目录名与清单文件名改用 strings.EqualFold 比较后全部返回 plugin-manifest；仅修改这一条生产判断，其他路径规则不变。projection/host 测试、局部 golangci-lint（0 issues）、goimports/gofmt 与 diff check 通过。
+
 ### Task 11: 四状态解析与目标名称冲突
 
 **Files:**

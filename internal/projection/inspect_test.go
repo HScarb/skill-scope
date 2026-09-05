@@ -333,6 +333,22 @@ func TestInspectRejectsUnsafeTrees(t *testing.T) {
 	}
 }
 
+func TestInspectRejectsPluginManifestCaseVariants(t *testing.T) {
+	for _, name := range []string{
+		".CLAUDE-PLUGIN/plugin.json",
+		".claude-plugin/PLUGIN.JSON",
+		".CLAUDE-PLUGIN/PLUGIN.JSON",
+		"nested/.Claude-Plugin/Plugin.Json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, reject, err := inspect(t, fstest.MapFS{name: {Data: []byte("{}")}})
+			if err != nil || reject == nil || reject.Reason != "plugin-manifest" || reject.Path != name {
+				t.Fatalf("reject=%+v err=%v", reject, err)
+			}
+		})
+	}
+}
+
 func TestInspectEnforcesExpandedLimits(t *testing.T) {
 	for _, count := range []int{projection.MaxFiles, projection.MaxFiles + 1} {
 		t.Run(fmt.Sprint("files-", count), func(t *testing.T) {
