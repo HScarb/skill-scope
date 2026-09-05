@@ -1000,7 +1000,7 @@ git commit -m "feat: copy checked skills into session staging"
 - Modify: `.gitattributes`。
 - Modify: `internal/cli/integration_test.go:assertSettings`。
 
-- [ ] **Step 1: 写 settings golden 与参数测试**
+- [x] **Step 1: 写 settings golden 与参数测试**
 
 固定 fixture：普通 allowed/native、普通 blocked、settings-only stale；projected 名 `foreign`；installed 允许 `allowed@market`、installed 禁止 `blocked@market`、settings-only `stale@market`、允许但未安装 `missing@market`；Bundled=false。
 
@@ -1026,13 +1026,13 @@ Expected：
 
 另外测试：空全集仍输出 `{}` 而非 null/省略；Bundled=true 必须输出 false；同名多入口全部控制；plugin skill 不写成普通 skillOverrides 开关；projected entries 数量为零时完全不带 `--add-dir`。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/agent/claude -run TestPlan -v`
 
 Expected：旧 JSON 只有 skillOverrides，FAIL。
 
-- [ ] **Step 3: 扩展生成对象**
+- [x] **Step 3: 扩展生成对象**
 
 读取 settings 的输入结构与生成结构分开，避免未知用户字段被写回：
 
@@ -1052,7 +1052,7 @@ type generatedSettings struct {
 
 同步 Phase 1 的 `TestPlanIncludesAllowedNameAbsentFromInventory`：它原来明确期望忽略 projected，现在应断言 projected 开启且有 add-dir。把旧无效 `plugin-only` fixture 改为合法两段 ID。不能只更新 golden 后忽略语义断言。
 
-- [ ] **Step 4: 更新并验证 golden**
+- [x] **Step 4: 更新并验证 golden**
 
 ```sh
 go test ./internal/agent/claude -run TestPlan -update
@@ -1061,12 +1061,21 @@ go test ./internal/agent/claude ./internal/cli -v
 
 Expected：PASS。检查 diff 后将 `.gitattributes` 扩展到本期 Claude/CLI 的文本 golden，固定 LF；不要统一改写仓库全部文件行尾。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/agent/claude internal/cli/integration_test.go .gitattributes
 git commit -m "feat: generate complete Claude isolation settings"
 ```
+
+**Task 13 实测记录（2026-09-06）：**
+
+- 红灯：`go test ./internal/agent/claude -run TestPlan -v` 失败，旧 JSON 仅有 skillOverrides，projected 参数缺少 add-dir；先执行三字段语义断言，再允许更新 golden。
+- 绿灯：`go test ./internal/agent/claude -run TestPlan -update`、`go test ./internal/agent/claude ./internal/cli -v`、`go test -short ./...` 通过。两个 golden 固定三字段，空 maps 为对象；Bundled=true 的测试精确要求显式 false。
+- 边界：plugin-only 名按 LevelPlugin/PluginID/PluginAgent 分离，历史 override 仅保留 off，允许插件不生成普通开关；普通或 projected 同名仍开启。多 location、未知 inventory 允许名、输出与输入互不共享、allocated Env、0600、最终路径与无文件写入均有断言。
+- WSL Ubuntu 使用现有 `/var/tmp/skope-phase2-go-01a070a2` Go 1.24/runtime 和离线模块缓存执行 `go test ./internal/agent/claude ./internal/cli -timeout 120s` 通过，包含 Windows 跳过的真实 fake-agent exec 测试。首次 WSL 暴露 fixture 已允许 sample@market，assertSettings 已精确断言该插件为 true，并保留普通技能白名单与 bundled 禁用断言。
+- 主 golden 普通开关为 allowed/foreign on、blocked/stale off；插件允许 2 个（allowed/missing）、禁用 2 个（blocked/stale），供 Task 14 的结果摘要交叉校验。
+- 固定 v2.13.2 golangci-lint scoped `fmt`（gofmt/goimports）、`run ./internal/agent/claude ./internal/cli` 通过，0 issues；`git diff --check` 通过。仅 Claude JSON golden 与 CLI text golden 固定 LF，未改冻结类型、Inventory 读取逻辑、生产 Run、真实用户配置或 Claude API。
 
 ### Task 14: launch 接入完整投影流程和结果元数据
 

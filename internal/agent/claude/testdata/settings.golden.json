@@ -1,8 +1,15 @@
 {
   "skillOverrides": {
-    "alpha": "off",
-    "beta": "on",
-    "legacy": "on",
+    "allowed": "on",
+    "blocked": "off",
+    "foreign": "on",
     "stale": "off"
-  }
+  },
+  "enabledPlugins": {
+    "allowed@market": true,
+    "blocked@market": false,
+    "missing@market": true,
+    "stale@market": false
+  },
+  "disableBundledSkills": true
 }

@@ -420,13 +420,22 @@ func assertSettings(t *testing.T, path string) {
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		t.Fatalf("decode settings: %v\n%s", err, raw)
 	}
-	if len(settings) != 1 {
-		t.Errorf("settings keys = %v, want only skillOverrides", reflect.ValueOf(settings).MapKeys())
+	if len(settings) != 3 {
+		t.Errorf("settings keys = %v, want skillOverrides, enabledPlugins, disableBundledSkills", reflect.ValueOf(settings).MapKeys())
 	}
-	for _, forbidden := range []string{"enabledPlugins", "disableBundledSkills"} {
-		if _, exists := settings[forbidden]; exists {
-			t.Errorf("settings unexpectedly contains %s", forbidden)
-		}
+	var plugins map[string]bool
+	if err := json.Unmarshal(settings["enabledPlugins"], &plugins); err != nil {
+		t.Fatalf("decode enabledPlugins: %v", err)
+	}
+	if want := map[string]bool{"sample@market": true}; !reflect.DeepEqual(plugins, want) {
+		t.Errorf("enabledPlugins = %#v, want %#v", plugins, want)
+	}
+	var disabled bool
+	if err := json.Unmarshal(settings["disableBundledSkills"], &disabled); err != nil {
+		t.Fatalf("decode disableBundledSkills: %v", err)
+	}
+	if !disabled {
+		t.Error("disableBundledSkills = false, want true")
 	}
 	var overrides map[string]string
 	if err := json.Unmarshal(settings["skillOverrides"], &overrides); err != nil {
