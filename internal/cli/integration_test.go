@@ -54,9 +54,7 @@ func TestIntegrationClaudeLaunchWritesFinalSessionAndReapsItOnDryRun(t *testing.
 	if !reflect.DeepEqual(record.Args, wantArgs) {
 		t.Errorf("fake argv = %q, want %q", record.Args, wantArgs)
 	}
-	if record.Cwd != fixture.repo {
-		t.Errorf("fake cwd = %q, want %q", record.Cwd, fixture.repo)
-	}
+	assertSameFile(t, record.Cwd, fixture.repo)
 	if record.Env["HOME"] != fixture.home {
 		t.Errorf("fake HOME = %q, want %q", record.Env["HOME"], fixture.home)
 	}
@@ -367,6 +365,21 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 	}
 	if got := info.Mode().Perm(); got != want {
 		t.Errorf("mode for %s = %#o, want %#o", path, got, want)
+	}
+}
+
+func assertSameFile(t *testing.T, gotPath, wantPath string) {
+	t.Helper()
+	got, err := os.Stat(gotPath)
+	if err != nil {
+		t.Fatalf("stat got path %q: %v", gotPath, err)
+	}
+	want, err := os.Stat(wantPath)
+	if err != nil {
+		t.Fatalf("stat want path %q: %v", wantPath, err)
+	}
+	if !os.SameFile(got, want) {
+		t.Errorf("paths identify different files: got %q, want %q", gotPath, wantPath)
 	}
 }
 

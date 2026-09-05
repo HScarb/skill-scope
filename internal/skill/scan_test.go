@@ -450,7 +450,11 @@ func TestScannerResolvesSkillFileSymlinkToTargetFile(t *testing.T) {
 		t.Fatalf("ScanClaude() error = %v", err)
 	}
 	location := result.Skills[0].Locations[0]
-	if got, want := location.RealPath, filepath.ToSlash(target); got != want {
+	targetRealPath, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", target, err)
+	}
+	if got, want := location.RealPath, filepath.ToSlash(targetRealPath); got != want {
 		t.Fatalf("RealPath = %q, want target file %q", got, want)
 	}
 }
