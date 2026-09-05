@@ -82,7 +82,7 @@ Claude plugin 枚举依据为 2.1.259 的真实实验（`docs/verification.md` �
 - `plugin list --json` 返回数组；真实项有 `id`、`enabled`、`scope`、绝对 `installPath`，同 ID 多次安装保留多行及原顺序。普通 project/local 项带 `projectPath`；自动 project plugin 不带该字段。`--available` 会改为对象且混入市场候选，不能用于本契约。
 - installed 集合包含所有真实行的 ID，与当前 enabled 状态无关。列表也列出其他项目的安装；不得先按 cwd 过滤 installed 集合再判 missing。缓存加载根按列表原顺序取首个适用记录：user 对所有 cwd 适用，project/local 需 cwd 等于或位于 `projectPath` 目录内（按路径组件比较，不能字符串前缀）。不排序 scope 或版本号，不把历史缓存目录当当前入口。没有适用记录时只保留 installed ID，不建 native location；元数据损坏、未知来源或应存在根读失败才 fail-closed。后续 Claude 根据允许项自动安装的新位置不在本次 inventory 的预知范围。
 - 对 `@skills-dir`，直接使用 list 的原地 `installPath`。自动 plugin 来源包括 `$CLAUDE_CONFIG_DIR/skills/<name>/.claude-plugin/plugin.json` 与 cwd `.claude/skills/<name>/.claude-plugin/plugin.json`；项目项要求 workspace 已信任，且不向父目录扫描。普通 skill 扫描遇到 plugin manifest 目录必须停止，避免把内部 skill 重复当普通 native。
-- 精确占位形状 `id="(suppressed)@skills-dir"`、`scope="project"`、`enabled=false`、`installPath=""`、`version="unknown"`、字符串数组 `notes` 表示未信任项目的自动 plugin 被跳过；转为静态告警，不进入 installed/PluginIDs，不原样输出 notes。其他空路径或损坏关键字段 fail-closed。
+- 精确占位形状 `id="(suppressed)@skills-dir"`、`scope="project"`、`enabled=false`、`installPath=""`、`version="unknown"`、字符串数组 `notes` 表示未信任项目的自动 plugin 被跳过，已知清单不完整。返回类型化 inventory 错误，active dry-run/launch 均不得进入 Plan、Stage 或 Handoff；提示先在 Claude 中独立完成当前 workspace 信任，再重试 skope。skope 不自动修改信任状态，`-s none` 仍按旁路跳过 inventory。伪 ID 不进入 installed/PluginIDs，不原样输出 notes。其他空路径或损坏关键字段同样 fail-closed。
 - 普通 marketplace plugin 必须读取 `$CLAUDE_CONFIG_DIR/plugins/known_marketplaces.json` 对应 marketplace 的 `source.source` 和 `installLocation`。`source.source="directory"` 时读取 `<installLocation>/.claude-plugin/marketplace.json`，按精确 plugin name 找到相对字符串 `source`，加载根为 marketplace 根加该路径；真实 Claude 会原地加载，list 的 cache 路径可能已有旧内容。其他已知缓存来源（git/github/url）使用适用 list 项的 `installPath`。无法解析的来源/非字符串 directory plugin source 明确 fail-closed；不再运行模型探测，也不读取完整用户配置作为替代。
 - plugin skill 的逻辑 ID 仍是 basename；Claude 有效名为 `<plugin manifest name>:<basename>`，不能用 marketplace ID 或 frontmatter name 代替 namespace。manifest name 缺失/错误应报清单错误。
 
@@ -487,6 +487,7 @@ Windows 上正常退出立即清理；崩溃残留由回收兜底。Windows 不�
 | OpenCode 配置文件存在但解析失败 | fail-closed | 1 |
 | 已有 `OPENCODE_CONFIG_CONTENT` 非法 JSON | fail-closed | 1 |
 | `claude plugin list` 失败、超时、超限或 JSON 非法 | fail-closed | 1 |
+| `claude plugin list` 返回未信任项目的 suppressed 占位，已知清单不完整 | fail-closed；类型化 inventory 错误，提示先在 Claude 独立完成 workspace 信任；active dry-run/launch 均不规划、staging 或 handoff，none 旁路 | 1 |
 | 白名单 ID 对本 agent unavailable | 告警继续 | 沿用 agent |
 | 白名单 ID 全集中不存在 | 告警，missing | 沿用 agent |
 | 允许的 plugin 未安装 | 告警，missing | 沿用 agent |

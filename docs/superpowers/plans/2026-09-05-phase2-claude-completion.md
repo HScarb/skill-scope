@@ -183,7 +183,7 @@ git commit -m "docs: establish the Phase 2 Claude integration contract"
 
 Expected：第 3、10 条均有结论；若还未完成，后续任务保持未勾选。文档查询可以支持实验设计，不能代替真实验证。
 
-实际结论：list 顶层数组；同 ID 多 scope 保留原序；缓存位置取首个适用安装记录，directory marketplace 必须通过 known_marketplaces/catalog 解析原地根；自动 `@skills-dir` 在 list 中可见，未信任项目的精确 suppressed 占位转告警。fixture 路径以 `/fixture` 为测试根，测试按当前平台临时根替换。完整矩阵见 `docs/verification.md` 第 10 条。
+实际结论：list 顶层数组；同 ID 多 scope 保留原序；缓存位置取首个适用安装记录，directory marketplace 必须通过 known_marketplaces/catalog 解析原地根；自动 `@skills-dir` 在 list 中可见，未信任项目的精确 suppressed 占位证明清单不完整，按类型化 inventory 错误阻断 active dry-run/launch。fixture 路径以 `/fixture` 为测试根，测试按当前平台临时根替换。完整矩阵见 `docs/verification.md` 第 10 条。
 
 ### Task 3: `termsafe` 转义、环境值脱敏与 stderr 摘要
 
@@ -437,7 +437,7 @@ git commit -m "feat: contain Windows auxiliary probes in a job"
 | 只有其他项目安装，无适用 cache 行 | ID 仍进入 installed/PluginIDs，不建 native location，不误报 missing、不令全部启动失败 |
 | directory marketplace cache 有旧内容、源目录新增 skill | known_marketplaces + catalog 定位原地根，枚举新增项 |
 | personal/project 自动 plugin | 使用 list 原地路径；project 自动项允许缺 projectPath；普通 scanner 遇 manifest 目录停止 |
-| 精确 suppressed 占位 | 静态告警，伪 ID 不进入 PluginIDs；其他空 installPath 仍失败 |
+| 精确 suppressed 占位 | 类型化 inventory 错误，提示先在 Claude 独立完成当前 workspace 信任再重试；不返回部分 inventory，不回显 notes，其他空 installPath 仍失败 |
 | JSON 根错误、trailing value、语法错误 | fail-closed |
 | probe 退出失败、超时、超限 | 不继续扫描 plugin 目录，不返回部分 inventory |
 | `enabledPlugins` 为 null/数组，值不是 bool | settings 文件路径 + 字段错误 |
@@ -486,6 +486,8 @@ type Root struct {
 逐个更新原 roots 的 VisibleTo，command 仍只有 Claude；名字构建遵循来源与验证后的 plugin namespace，不把 `Names[Claude]` 写死在底层 scanner。同步现有 fakeScanner 和 Inventory fixture 注入合法空 probe，避免旧测试因缺依赖而失去原行为覆盖。
 
 `plugins.go` 内部保留安装项类型：id/enabled/scope 必须能够区分缺失与零值，特别是 `enabled:false` 与缺字段。scope 枚举和安装路径来源以 Task 2 fixture 为准；未知非关键字段兼容忽略，未知关键来源不能当作空列表成功。
+
+为精确 suppressed 占位定义可由 `errors.As` 识别的 `IncompletePluginInventoryError`；其静态错误说明指向在 Claude 中完成当前 workspace 信任后重试，不回显子进程 notes。这类响应表明已知预存 plugin 未被枚举，不能只告警后继续 handoff，否则随后接受信任可能加载未写 false 的 plugin。skope 不写 Claude 信任配置；none 不调用 probe，仍完整旁路。
 
 按 spec §4.1 已验证规则解析：真实列表为数组；普通 project/local 记录要求 projectPath，自动 @skills-dir project 项不要求。缓存记录原序首个适用项决定根，不能按 scope 或版本排序；所有真实 ID 先进入 installed 集合，无适用项只是不建 location。读取 known_marketplaces 对应来源：directory 的相对字符串 catalog source 决定原地根，已知缓存来源使用 list.installPath，自动 plugin 直接用 list 路径。无关 catalog 项不进入 installed。不得通过模型调用、遍历旧版本目录或猜默认 cache 路径兜底。manifest 的 name 决定 NamePrefix，SKILL.md frontmatter 不改变 plugin namespace。
 
@@ -1180,6 +1182,7 @@ Expected：新增集成断言先暴露装配缺口；如实现已满足，应记
 | none | 损坏 skillsets 和损坏 plugin JSON 均不影响旁路；无 probe/scan/projection；配置损坏仍失败 |
 | 五种冲突 | config/user 两种来源；probe 和最终 agent 都未启动；值不泄漏 |
 | plugin 枚举失败 | 非零/非法 JSON/非法字段/超时/超限；无 session/handoff |
+| 未信任 workspace 的 suppressed 占位 | 使用 Task 2 占位 fixture；active dry-run/launch 均退出 1，不调用 Plan/Stage/Handoff，不输出 notes sentinel；错误提示先在 Claude 独立完成信任。none 仍无 probe 并旁路成功 |
 | missing plugin/skill | warning，启动继续；不能隐式启用额外 plugin |
 | projection Rejection | unavailable 后继续；被拒文件不出现在会话 |
 | 外来 SKILL.md 为 FIFO/超大文件 | 完整 foreign scan → resolve → dry-run 路径有限时返回 unavailable；FIFO helper 不阻塞，普通文件读取保持上界 |

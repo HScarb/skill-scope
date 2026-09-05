@@ -154,7 +154,9 @@ marketplace JSON 为 `{"name":"skope-fixture","owner":{"name":"skope-test"},"plu
 
 cache-only.json 与 auto-off 相同，额外 cache-plugin@skope-git-fixture=true。真实 list fixture 保留原字段并以 `/fixture` 替换临时绝对根；目录来源元数据另存 package-local fixture。仅支持已明确定位的根；未知关键来源或含糊记录 fail-closed，不猜版本，也不运行额外模型 probe。所有控制组以 init 列表、路径及 CLI 确定性拒绝为主，marker 只辅助确认已执行的允许项。
 
-结论：第 10 条门禁通过，spec 已补实际 list 数组、自动 plugin/未信任占位、directory 原地加载、cache 记录顺序与 scope 规则；六个冻结类型不变。实验 fixture 和无秘密 harness 暂留供独立复核，未纳入产品源码。
+实施决定（独立审查修订）：suppressed 占位是已知清单不完整，不能仅告警后继续。交接后的 Claude 若接受 workspace 信任，可能加载未进入关闭全集的预存自动 plugin；因此精确占位返回类型化 inventory 错误，active dry-run/launch 不进入 Plan、Stage 或 Handoff，提示先在 Claude 独立完成当前 workspace 信任后重试。skope 不修改信任状态，不原样回显 notes；none 仍跳过 inventory。占位 fixture 保留为失败测试输入。此决定基于已完成实验，不需要新的模型调用。
+
+结论：第 10 条门禁通过，spec 已补实际 list 数组、自动 plugin/未信任占位的失败处理、directory 原地加载、cache 记录顺序与 scope 规则；六个冻结类型不变。实验 fixture 和无秘密 harness 暂留供独立复核，未纳入产品源码。
 
 ## Codex（阻断 Phase 3）
 
