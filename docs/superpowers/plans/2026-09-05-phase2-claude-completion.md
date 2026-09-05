@@ -824,6 +824,8 @@ git commit -m "feat: inspect self-contained skill projection manifests"
 - 最终验证通过：Windows `go test -short ./...`；`go test ./internal/projection ./internal/host`；局部 golangci-lint v2.13.2（0 issues）；WSL `go test ./internal/projection ./internal/host -timeout 120s`；gofmt/goimports。projection 覆盖率 95.5%。本次无并发生产逻辑，未运行 Windows race（无 cgo）；WSL 真实 FIFO 用带超时的独立进程保护。
 - Windows 无 symlink 权限的 fixture 单独跳过；真实 Junction 测试执行，纯路径/拒绝/限额算法全部执行。快照确认 Inspect 不修改来源，返回 Manifest 仅保存路径、实际大小/hash 和静态 warning，不保存正文；Root 保留发现入口供重开复查。未装配 Run、未实现 Copy、未改冻结核心类型。
 
+Task 10 审查修复（2026-09-05）：补充 `TestInspectHonorsCancellationBeforeReturning`，确定性覆盖最后一次空目录 ReadDir 内取消、Root.Close 内取消、取消与 ReadDir/Close I/O 错误同时存在三种情况；修复前均不能由 `errors.Is(err, context.Canceled)` 判定取消。Inspect 的 defer 现先执行 Close，再合并原错误、closeErr 和 ctx.Err，三个用例转绿且保留两个原 I/O 错误。`go test ./internal/projection ./internal/host`、局部 golangci-lint（0 issues）、goimports/gofmt 与 diff check 通过；未扩大生产修改范围。
+
 ### Task 11: 四状态解析与目标名称冲突
 
 **Files:**

@@ -45,15 +45,25 @@ type faultRoot struct {
 	read, closedFiles                                                   int
 	remaining                                                           int64
 	cancel                                                              context.CancelFunc
+	cancelReadDir, cancelClose                                          context.CancelFunc
 }
 
 func (r *faultRoot) ReadDir(name string) ([]fs.DirEntry, error) {
+	if r.cancelReadDir != nil {
+		r.cancelReadDir()
+	}
 	if r.readDirErr != nil {
 		return nil, r.readDirErr
 	}
 	return r.testRoot.ReadDir(name)
 }
-func (r *faultRoot) Close() error { r.closed = true; return r.closeErr }
+func (r *faultRoot) Close() error {
+	r.closed = true
+	if r.cancelClose != nil {
+		r.cancelClose()
+	}
+	return r.closeErr
+}
 func (r *faultRoot) Open(name string) (fs.File, error) {
 	if r.openErr != nil {
 		return nil, r.openErr
@@ -182,6 +192,34 @@ func TestInspectPreservesIOErrors(t *testing.T) {
 			}
 			if name != "open-root" && !r.closed {
 				t.Fatal("root not closed")
+			}
+		})
+	}
+}
+
+func TestInspectHonorsCancellationBeforeReturning(t *testing.T) {
+	readErr := errors.New("read directory failed")
+	closeErr := errors.New("close root failed")
+	for _, name := range []string{"last-read-dir", "close", "close-with-io-errors"} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			r := &faultRoot{testRoot: &testRoot{MapFS: fstest.MapFS{}}}
+			if name == "last-read-dir" {
+				r.cancelReadDir = cancel
+			} else {
+				r.cancelClose = cancel
+			}
+			if name == "close-with-io-errors" {
+				r.readDirErr, r.closeErr = readErr, closeErr
+			}
+			i := projection.Inspector{OpenRoot: func(string) (projection.Root, error) { return r, nil }}
+			_, reject, err := i.Inspect(ctx, "root")
+			if reject != nil || !errors.Is(err, context.Canceled) || !r.closed {
+				t.Fatalf("reject=%+v err=%v rootClosed=%v", reject, err, r.closed)
+			}
+			if name == "close-with-io-errors" && (!errors.Is(err, readErr) || !errors.Is(err, closeErr)) {
+				t.Fatalf("lost IO errors: %v", err)
 			}
 		})
 	}

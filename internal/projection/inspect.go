@@ -21,7 +21,10 @@ func (i Inspector) Inspect(ctx context.Context, directory string) (manifest Mani
 	if err != nil {
 		return manifest, nil, err
 	}
-	defer func() { err = errors.Join(err, r.Close()) }()
+	defer func() {
+		closeErr := r.Close()
+		err = errors.Join(err, closeErr, ctx.Err())
+	}()
 	s := inspection{ctx: ctx, root: r, manifest: Manifest{Root: directory}, targets: make(map[string]bool)}
 	rejection, err = s.walk(".", ".", nil)
 	sort.Strings(s.manifest.Directories)
