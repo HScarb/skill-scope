@@ -1,6 +1,6 @@
 # skill-scope Phase 2（Claude 补全）Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
 **Goal:** 在 Phase 1 的 Claude 启动流程上补齐 plugin/bundled 白名单、外来 skill 投影、冲突参数检测、终端安全输出和完整 dry-run，使 Claude 达到 spec §14.2 的验收要求。
 
@@ -12,11 +12,11 @@
 
 **Spec 对应：** `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §4.1/§4.4、§5.3、§6.2/§6.3/§6.6、§7.1/§7.5、§8.3、§9、§10、§11.1/§11.2、§14.2/§14.7。
 
-**执行状态：** 计划待执行。2026-09-05 查阅 `docs/verification.md` 时，Claude 第 3、10 条均为「未验证」。本文没有执行这些实验，也不将 Phase 1 的 allowed/blocked 实验当作它们的证据。
+**执行状态：** 2026-09-05 已开始实施。Task 1 的真实 Claude 第 3 条已通过，证据见 `docs/verification.md`；Task 2 的第 10 条仍未验证，继续阻断 Task 3–16。
 
-**审查修订（2026-09-05）：** Task 9/14/16 补外来入口读取前的类型检查、有界读取及拒绝原因传递；Task 10–12 补大小写冲突与投影文件禁止覆盖写入；Task 17 的真实验收绑定本次提交构建出的绝对路径。以下执行复选框仍全部保持未完成。
+**审查修订（2026-09-05）：** Task 9/14/16 补外来入口读取前的类型检查、有界读取及拒绝原因传递；Task 10–12 补大小写冲突与投影文件禁止覆盖写入；Task 17 的真实验收绑定本次提交构建出的绝对路径。执行复选框按实际完成情况更新。
 
-**执行技能：** 实施使用 `@superpowers:executing-plans`；新增行为按 `@superpowers:test-driven-development`；出现失败用 `@superpowers:systematic-debugging`；Task 17 使用 `@superpowers:verification-before-completion`。步骤中的命令在仓库根运行；含 POSIX 环境赋值的真实实验只在 Linux/macOS/WSL shell 运行。
+**执行技能：** 实施按用户指示使用 `@superpowers:subagent-driven-development`，编码参考 `@karpathy-guidelines`；新增行为按 `@superpowers:test-driven-development`；出现失败用 `@superpowers:systematic-debugging`；Task 17 使用 `@superpowers:verification-before-completion`。步骤中的命令在仓库根运行；含 POSIX 环境赋值的真实实验只在 Linux/macOS/WSL shell 运行。
 
 ## 代码基线与必须先解决的问题
 
@@ -71,7 +71,7 @@
 - Modify: `docs/verification.md`（Claude 第 3 条）。
 - Modify if contradicted: `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §3/§7.1/§7.5。
 
-- [ ] **Step 1: 建立一次性实验目录**
+- [x] **Step 1: 建立一次性实验目录**
 
 沿用 `docs/verification.md` 的隔离原则，明确设置 HOME、CLAUDE_CONFIG_DIR、SKOPE_HOME；cwd 是 fixture/repo。创建：
 
@@ -97,7 +97,7 @@ fixture/
 {"skillOverrides":{"projected-check":"off"}}
 ```
 
-- [ ] **Step 2: 运行对照组**
+- [x] **Step 2: 运行对照组**
 
 在已设置实验环境的 shell 中运行，`$FIXTURE` 和 `$CLAUDE_EXE` 为执行者设置的绝对路径：
 
@@ -110,15 +110,15 @@ fixture/
 
 Expected：on 组可以调用 basename 名字并读取资源；off 组给出禁用证据；无 add-dir 组不可发现。不能只靠退出码或模型自然语言自述判定。额外检查 frontmatter 名是否意外成为可调用名字。
 
-- [ ] **Step 3: 记录可复现证据**
+- [x] **Step 3: 记录可复现证据**
 
 记录日期、完整版本、OS、fixture 内容、完整命令、可见名字和确定性拒绝信息。若沿用 Phase 1 的 WSL → Windows bridge，必须同时转换 `--settings` 与 `--add-dir`，并标明这不证明原生 Linux Claude 行为。provider 凭据只通过被授权的实验进程环境使用，不写进 fixture、命令记录或仓库。
 
-- [ ] **Step 4: 根据观察更新状态**
+- [x] **Step 4: 根据观察更新状态**
 
 只有证据支持时标「通过」。若名字、加载或 override 语义不符，先修订对应 spec，再更新本计划的投影名字与 fixture；不要继续实施旧假设。
 
-- [ ] **Step 5: 提交证据**
+- [x] **Step 5: 提交证据**
 
 ```sh
 git add docs/verification.md

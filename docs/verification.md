@@ -13,12 +13,64 @@
 
 ### 第 3 条：`--add-dir` 投影 skill 可被 `skillOverrides` 打开
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：通过（2026-09-05）。
+- agent 版本：`2.1.259 (Claude Code)`。
+- 平台：Windows 11，`Microsoft Windows NT 10.0.26200.0`，PowerShell 7.6.5；直接执行 Windows PE，不经过 WSL 或 skope handoff。
+- 隔离：子进程的 `HOME`、`USERPROFILE`、`CLAUDE_CONFIG_DIR`、`SKOPE_HOME` 分别指向 fixture 的 `home`、`home`、`claude`、`skope`；cwd 为 `fixture/repo`。仅把现有 provider 所需的 `ANTHROPIC_*`、代理及 TLS 环境值注入子进程内存；没有复制真实 settings、skills、hooks 或 plugin。stdin 关闭，stdout/stderr 分开收集。
+
+```text
+fixture/                                      # 随机临时目录，绝对路径见下
+  home/
+  claude/
+  skope/
+  repo/.git/
+  addDir/.claude/skills/projected-check/
+    SKILL.md
+    references/marker.md
+  on.json
+  off.json
+```
+
+`SKILL.md` 的完整内容如下，marker 只存在于资源文件中：
+
+```markdown
+---
+name: different-frontmatter-name
+description: Controlled projection verification fixture
+---
+Read the file references/marker.md relative to this skill's directory using the Read tool, then output its exact contents and nothing else. Do not guess the contents.
+```
+
+`references/marker.md` 为 `SKOPE_ADDDIR_RESOURCE_a18a7799` 加换行；`on.json` 为 `{"skillOverrides":{"projected-check":"on"}}`，`off.json` 为 `{"skillOverrides":{"projected-check":"off"}}`。
+
+以下 PowerShell 命令均使用上述子进程环境与 cwd；provider 值不出现在命令参数、fixture 或本文中：
+
+```powershell
+$CLAUDE_EXE = 'D:/programs/scoop/apps/nodejs-lts/current/bin/node_modules/@anthropic-ai/claude-code/bin/claude.exe'
+$FIXTURE = 'C:/Users/j00466872/AppData/Local/Temp/skope-phase2-adddir-a18a7799'
+& $CLAUDE_EXE --version
+& $CLAUDE_EXE --add-dir "$FIXTURE/addDir" --settings "$FIXTURE/on.json" -p /projected-check --max-turns 2 --output-format text
+& $CLAUDE_EXE --add-dir "$FIXTURE/addDir" --settings "$FIXTURE/off.json" -p /projected-check --max-turns 2 --output-format text
+& $CLAUDE_EXE --settings "$FIXTURE/on.json" -p /projected-check --max-turns 2 --output-format text
+& $CLAUDE_EXE --add-dir "$FIXTURE/addDir" --settings "$FIXTURE/on.json" -p /different-frontmatter-name --max-turns 2 --output-format text
+& $CLAUDE_EXE --add-dir "$FIXTURE/addDir" --settings "$FIXTURE/off.json" -p /different-frontmatter-name --max-turns 2 --output-format text
+& $CLAUDE_EXE --add-dir "$FIXTURE/addDir" --settings "$FIXTURE/on.json" -p /projected-check --max-turns 2 --verbose --output-format stream-json --allowedTools Read
+& $CLAUDE_EXE --add-dir "$FIXTURE/addDir" --settings "$FIXTURE/on.json" -p /different-frontmatter-name --max-turns 2 --verbose --output-format stream-json --allowedTools Read
+```
+
+| 检查 | 观察 |
+|---|---|
+| basename + on | 输出 `SKOPE_ADDDIR_RESOURCE_a18a7799` |
+| basename + off | CLI 确定性报告 `Skill "projected-check" is disabled via skillOverrides. Remove the override from your settings to run it.`；没有 marker |
+| 没有 add-dir | CLI 报告 `Unknown command: /projected-check`；没有 marker |
+| frontmatter 名 + basename on | 同样输出 marker，说明该版本也接受 frontmatter 名作为调用别名 |
+| frontmatter 名 + basename off | 同样报告 `Skill "projected-check" is disabled via skillOverrides...`；别名没有绕过 basename 的关闭规则 |
+| 两个 stream-json on 组 | `system/init.skills` 和 `slash_commands` 都包含 `projected-check`，不包含 `different-frontmatter-name`；`plugins` 为空 |
+| 资源读取 | 两个 stream-json 组均出现 `Read` 的 `tool_use`，`file_path` 指向 `addDir/.claude/skills/projected-check/references/marker.md` 的绝对路径；对应 `tool_result` 和 `tool_use_result.file.content` 返回唯一 marker，最终 `result` 也为该 marker，`permission_denials` 为空 |
+
+所有调用退出码均为 0，因此通过依据是 CLI 的明确拒绝、初始化发现列表和实际 Read 工具结果，不是退出码或模型自述。basename 与 frontmatter alias 的初始化列表一致；白名单控制键仍是 basename `projected-check`，无需为别名另写 override。本实验支持 spec §7.5 第 3 条；不证明原生 Linux/macOS Claude 行为，也不覆盖同名别名间的优先级。
+
+复现实验 harness 暂存于 `C:/Users/j00466872/AppData/Local/Temp/skope-phase2-task1.ps1`，只保存注入逻辑及上述无秘密 fixture；实际 provider 值在每次运行时读入进程内存。fixture 与脱敏输出暂留供独立复核；检查 29 个 fixture 文件未发现现用 `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY` 值，完成复核后清理。该临时 harness 和输出不纳入产品提交。
 
 ### 第 10 条：plugin 缓存目录中 skill 的枚举来源与布局
 
@@ -184,4 +236,4 @@ Skill "blocked" is disabled via skillOverrides. Remove the override from your se
 
 该命令退出码为 0，因此验证以明确拒绝信息及 blocked marker 缺失为准，不能仅依赖退出码。所有临时 fixture、bridge、输出和实验二进制已清理。
 
-本实验没有验证 projection 或 plugin 枚举，§7.5 第 3、10 条仍保持「未验证」，继续阻断 Phase 2 的对应能力。
+本次 Phase 1 实验没有验证 projection 或 plugin 枚举，当时 §7.5 第 3、10 条保持「未验证」；后续状态以上方对应条目的独立实验记录为准。
