@@ -110,7 +110,7 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 	}
 
 	fsys := host.OSFileSystem{}
-	scanner := skill.Scanner{FS: fsys}
+	scanner := skill.Scanner{FS: fsys, RegularFiles: fsys}
 	service := launch.Service{
 		Env:       env,
 		FS:        fsys,
@@ -120,6 +120,7 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 			return agent.NewRegistry(adapter)
 		},
 		CheckConflicts: CheckConflicts,
+		Foreign:        scanner,
 		Resolver:       host.ExecutableResolver{},
 		Sessions:       session.NewManager(skopeHome),
 		Handoff:        handoff.Handoff{},

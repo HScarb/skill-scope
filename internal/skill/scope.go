@@ -23,6 +23,17 @@ type Root struct {
 	NamePrefix  string
 }
 
+func foreignGlobalRoots(env host.Env) []Root {
+	codexHome := strings.TrimSpace(env.Get("CODEX_HOME"))
+	if codexHome == "" {
+		codexHome = joinPath(env.Home(), ".codex")
+	}
+	return []Root{
+		{Path: joinPath(env.Home(), ".agents", "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceAgents, VisibleTo: []Agent{AgentCodex, AgentOpenCode}},
+		{Path: joinPath(codexHome, "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceCodex, VisibleTo: []Agent{AgentCodex}},
+	}
+}
+
 func claudeScanRoots(fileSystem FileSystem, env host.Env) ([]Root, string, error) {
 	cwd := cleanPath(env.Cwd())
 	projectRoot, found, err := findGitRoot(fileSystem, cwd)

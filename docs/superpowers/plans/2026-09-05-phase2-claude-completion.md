@@ -627,7 +627,7 @@ git commit -m "feat: bind Claude launch options and reject conflicting flags"
 - Modify: `internal/launch/launch.go`。
 - Modify: `internal/cli/root.go`。
 
-- [ ] **Step 1: 写数据驱动扫描测试**
+- [x] **Step 1: 写数据驱动扫描测试**
 
 通过现有 `mapFileSystem`/`fstest.MapFS` 包装器测试：
 
@@ -652,13 +652,13 @@ git commit -m "feat: bind Claude launch options and reject conflicting flags"
 
 用记录读取量的 fake reader 证明上界，用抛错的旧 ReadFile 替身证明 foreign 分支没有调用无界入口。Unix FIFO 回归通过受测试超时约束的 helper 子进程运行，避免实现有缺陷时挂住整个测试套件；Windows 跑同一拒绝分支的假文件系统测试。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/skill ./internal/host -run 'TestScanForeign|TestScannerExplicit|TestOpenRegular' -v`
 
 Expected：FAIL。
 
-- [ ] **Step 3: 实现并注入第二扫描入口**
+- [x] **Step 3: 实现并注入第二扫描入口**
 
 ```go
 func (s Scanner) ScanForeignGlobals(env host.Env, maxBytes int64) (ScanResult, error)
@@ -698,18 +698,24 @@ type ForeignScanner interface {
 
 本 Task 只建立扫描入口和合并 helper；Task 14 才将它接入 Service.Run，届时四状态解析与 Copier 已齐备。不能先把 foreign 集合交给旧 `ResolveNative`，造成中间提交把不可见 skill 报成 native。adapter.Inventory 本身继续遵守「该 agent 原生 inventory」注释。
 
-- [ ] **Step 4: 回归**
+- [x] **Step 4: 回归**
 
 Run: `go test ./internal/skill ./internal/host ./internal/launch ./internal/cli -v`
 
 Expected：PASS；合并 helper 能返回 foreign 候选及拒绝原因，特殊文件没有被读取，超限读取不超过 limit+1；当前生产 Run 尚不调用它，Task 14 再验证 active 接入和 none 旁路。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/skill internal/host internal/launch internal/cli
 git commit -m "feat: discover foreign global skills for Claude projection"
 ```
+
+Task 9 执行记录（2026-09-05）：先增加 `TestOpenRegular` 并观察 API 缺失红灯，再实现普通只读文件与平台打开后端；foreign 扫描矩阵在 `ScanForeignGlobals` / `RegularFiles` / 原因常量缺失时红灯，最小实现后通过；合并 helper 在符号缺失时红灯，随后实现 locations 展平与 `skill.Build`。自审补 `special_stat_failure`，观察 Lstat 已见特殊文件时返回 nil 的失败，再统一经过 Stat 检查最终目标；正数 MaxInt64 限额测试也先失败，再修复 limit+1 溢出边界。
+
+最终验证：Windows `go test ./internal/host ./internal/skill ./internal/launch ./internal/cli -timeout 120s`、`go test -short ./...` 通过；四包 golangci-lint v2.13.2 为 0 issues；已执行 gofmt/goimports 与 `git diff --check`。现有 WSL Go 1.24 环境下四包常规测试和 `go test -race ./internal/host ./internal/skill ./internal/launch ./internal/cli -timeout 120s` 通过，实际执行限时子进程 FIFO/socket/设备检查与链接入口测试。Windows NUL 设备拒绝通过，真实 symlink 因当前账户缺少创建权限而跳过，同一场景在 WSL 实测通过。
+
+边界证据：foreign 的旧 ReadFile 为 panic trap；文件增长只读取 limit+1 字节，Stat 已超限不打开正文，特殊/超限保留 ID 且 Names 为空；独立读/关错误与 joined opener 错误均保留为 error。合并保留原生元数据及拒绝原因的独立副本。冻结类型与 Service.Run 未修改语义，生产仅注入 Foreign 字段，Task 14 再调用；未使用真实配置或 Claude API。
 
 ### Task 10: `projection` 只读清单、自包含检查与限额
 

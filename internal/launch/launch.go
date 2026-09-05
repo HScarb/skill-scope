@@ -23,6 +23,10 @@ type AdapterRegistry interface {
 type RegistryFactory func(executable string, selection config.Selection) (AdapterRegistry, error)
 type ConflictChecker func(agent skill.Agent, configArgs, userArgs []string) error
 
+type ForeignScanner interface {
+	ScanForeignGlobals(host.Env, int64) (skill.ScanResult, error)
+}
+
 type ExecutableResolver interface {
 	LookPath(command string) (string, error)
 }
@@ -68,6 +72,7 @@ type Service struct {
 	SkopeHome      string
 	NewRegistry    RegistryFactory
 	CheckConflicts ConflictChecker
+	Foreign        ForeignScanner
 	Resolver       ExecutableResolver
 	Sessions       SessionManager
 	Handoff        Handoff

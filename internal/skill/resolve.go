@@ -6,6 +6,11 @@ type ResolutionState string
 type ResolutionReason string
 
 const (
+	ReasonSpecialFile   ResolutionReason = "special-file"
+	ReasonLimitExceeded ResolutionReason = "limit-exceeded"
+)
+
+const (
 	StateNative      ResolutionState = "native"
 	StateProjected   ResolutionState = "projected"
 	StateUnavailable ResolutionState = "unavailable"

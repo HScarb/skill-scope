@@ -24,10 +24,16 @@ type ScanResult struct {
 	Skills      []Skill
 	Collisions  []Collision
 	ProjectRoot string
+	Rejections  []ScanRejection
+}
+
+type RegularFileOpener interface {
+	OpenRegular(name string) (fs.File, error)
 }
 
 type Scanner struct {
-	FS FileSystem
+	FS           FileSystem
+	RegularFiles RegularFileOpener
 }
 
 func (s Scanner) ScanClaude(env host.Env) (ScanResult, error) {
