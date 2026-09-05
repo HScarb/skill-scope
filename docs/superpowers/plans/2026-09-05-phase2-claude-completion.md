@@ -12,7 +12,7 @@
 
 **Spec 对应：** `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §4.1/§4.4、§5.3、§6.2/§6.3/§6.6、§7.1/§7.5、§8.3、§9、§10、§11.1/§11.2、§14.2/§14.7。
 
-**执行状态：** 2026-09-05 已开始实施。Task 1 的真实 Claude 第 3 条已通过，证据见 `docs/verification.md`；Task 2 的第 10 条仍未验证，继续阻断 Task 3–16。
+**执行状态：** 2026-09-05 Task 1/2 的真实 Claude 第 3、10 条门禁通过，实际偏差已修订 spec；证据见 `docs/verification.md`。Task 3–16 可进入实施。Task 2 最后一次模型调用遇 provider 403 额度不足，后续真实模型验收需恢复额度；已有 init 路径证据和此前成功的控制组保留。
 
 **审查修订（2026-09-05）：** Task 9/14/16 补外来入口读取前的类型检查、有界读取及拒绝原因传递；Task 10–12 补大小写冲突与投影文件禁止覆盖写入；Task 17 的真实验收绑定本次提交构建出的绝对路径。执行复选框按实际完成情况更新。
 
@@ -133,14 +133,14 @@ git commit -m "docs: verify Claude add-dir skill controls"
 
 - Modify: `docs/verification.md`（Claude 第 10 条）。
 - Modify: `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §4.1/§4.4/§7.1/§7.4/§8.3/§11.2/§14.2/§14.3。
-- Create after verification: `internal/agent/claude/testdata/plugin-list.valid.json`。
-- Create after verification: `internal/agent/claude/testdata/plugin-installation.valid.json`（只有确需读取安装元数据时）。
+- Create after verification: `internal/agent/claude/testdata/plugin-list.valid.json`、`plugin-list.suppressed.json`（后者是未信任快照中的精确占位子集）。
+- Create after verification: `internal/agent/claude/testdata/plugin-marketplaces.valid.json`、`plugin-marketplace-directory.valid.json`（directory marketplace 原地加载需要这些元数据；无需额外读取 installed_plugins.json）。
 
-- [ ] **Step 1: 制作不依赖公网的本地 marketplace**
+- [x] **Step 1: 制作不依赖公网的本地 marketplace**
 
 在临时目录放 `.claude-plugin/marketplace.json`，定义 `allowed-plugin`、`blocked-plugin`，各自包含 `.claude-plugin/plugin.json` 和 `skills/check/SKILL.md`；marker 不同。用真实 CLI 的 help 核对当前版本的 marketplace add、plugin install 和 scope 选项，然后在隔离的 CLAUDE_CONFIG_DIR 与 repo 下安装。记录最终执行的完整命令，不把推测的安装 schema 固化为事实。
 
-- [ ] **Step 2: 采集一次枚举与布局证据**
+- [x] **Step 2: 采集一次枚举与布局证据**
 
 ```sh
 "$CLAUDE_EXE" plugin list --help
@@ -157,13 +157,13 @@ git commit -m "docs: verify Claude add-dir skill controls"
 - 验证列表中存在但三层 settings 均无对应键的已安装 plugin；确认它仍必须进入关闭全集。
 - 当前官方文档还描述了 skills 目录内含 plugin manifest 的自动 plugin。检查当前验证版本是否支持、是否被 plugin list 枚举；若支持，明确其位置来源，不能只扫描 cache 而漏掉已安装集合。若不支持，记录版本边界。
 
-- [ ] **Step 3: 验证 plugin/bundled 控制与选择语义**
+- [x] **Step 3: 验证 plugin/bundled 控制与选择语义**
 
 临时 `--settings` 写 `enabledPlugins` 两项 true/false；验证允许组和禁止组。再验证 `skillOverrides` 无法替代 plugin 开关。`disableBundledSkills` 的 true/false 各做对照，记录当前版本内置 skill 的可见性证据。
 
 将测试数据缩减为无用户信息的 fixture；绝对路径换成说明明确的测试根，测试加载时替换。插件列表 fixture 必须来自实际结构，新增未知非关键字段应被解析器忽略。
 
-- [ ] **Step 4: 先修订 spec 中的六处接法**
+- [x] **Step 4: 先修订 spec 中的六处接法**
 
 1. §4.1 plugin 行补枚举依据、安装路径来源和 namespace；不能保留「待验证」后直接实现。
 2. §4.4/§7.4 明确 plugin ID 选择不隐式启用 plugin；关闭 plugin 中的选中 skill 如何报告 unavailable。
@@ -174,7 +174,7 @@ git commit -m "docs: verify Claude add-dir skill controls"
 
 这些是执行前的设计补充，不把它们标成原 spec 已有内容。六个冻结类型结构与 Adapter 方法签名保持不变。
 
-- [ ] **Step 5: 提交门禁和契约**
+- [x] **Step 5: 提交门禁和契约**
 
 ```sh
 git add docs/verification.md docs/superpowers/specs/2026-09-02-skill-scope-design.md internal/agent/claude/testdata
@@ -182,6 +182,8 @@ git commit -m "docs: establish the Phase 2 Claude integration contract"
 ```
 
 Expected：第 3、10 条均有结论；若还未完成，后续任务保持未勾选。文档查询可以支持实验设计，不能代替真实验证。
+
+实际结论：list 顶层数组；同 ID 多 scope 保留原序；缓存位置取首个适用安装记录，directory marketplace 必须通过 known_marketplaces/catalog 解析原地根；自动 `@skills-dir` 在 list 中可见，未信任项目的精确 suppressed 占位转告警。fixture 路径以 `/fixture` 为测试根，测试按当前平台临时根替换。完整矩阵见 `docs/verification.md` 第 10 条。
 
 ### Task 3: `termsafe` 转义、环境值脱敏与 stderr 摘要
 
@@ -431,6 +433,11 @@ git commit -m "feat: contain Windows auxiliary probes in a job"
 | 空安装列表 | 合法；settings 键仍保留 |
 | 缺 id/enabled/scope、enabled 为 null/字符串、无效两段 ID | fail-closed，含项索引和字段名，不打印整段 JSON |
 | 同 ID 不同合法 scope | 集合去重，安装入口按 Task 2 的规则解析 |
+| cache 同 ID user/project/local 不同路径，调整记录顺序 | 保留原序，首个 user 或 projectPath 包含 cwd 的项生效；nested cwd 匹配、相似字符串前缀不匹配 |
+| 只有其他项目安装，无适用 cache 行 | ID 仍进入 installed/PluginIDs，不建 native location，不误报 missing、不令全部启动失败 |
+| directory marketplace cache 有旧内容、源目录新增 skill | known_marketplaces + catalog 定位原地根，枚举新增项 |
+| personal/project 自动 plugin | 使用 list 原地路径；project 自动项允许缺 projectPath；普通 scanner 遇 manifest 目录停止 |
+| 精确 suppressed 占位 | 静态告警，伪 ID 不进入 PluginIDs；其他空 installPath 仍失败 |
 | JSON 根错误、trailing value、语法错误 | fail-closed |
 | probe 退出失败、超时、超限 | 不继续扫描 plugin 目录，不返回部分 inventory |
 | `enabledPlugins` 为 null/数组，值不是 bool | settings 文件路径 + 字段错误 |
@@ -479,6 +486,8 @@ type Root struct {
 逐个更新原 roots 的 VisibleTo，command 仍只有 Claude；名字构建遵循来源与验证后的 plugin namespace，不把 `Names[Claude]` 写死在底层 scanner。同步现有 fakeScanner 和 Inventory fixture 注入合法空 probe，避免旧测试因缺依赖而失去原行为覆盖。
 
 `plugins.go` 内部保留安装项类型：id/enabled/scope 必须能够区分缺失与零值，特别是 `enabled:false` 与缺字段。scope 枚举和安装路径来源以 Task 2 fixture 为准；未知非关键字段兼容忽略，未知关键来源不能当作空列表成功。
+
+按 spec §4.1 已验证规则解析：真实列表为数组；普通 project/local 记录要求 projectPath，自动 @skills-dir project 项不要求。缓存记录原序首个适用项决定根，不能按 scope 或版本排序；所有真实 ID 先进入 installed 集合，无适用项只是不建 location。读取 known_marketplaces 对应来源：directory 的相对字符串 catalog source 决定原地根，已知缓存来源使用 list.installPath，自动 plugin 直接用 list 路径。无关 catalog 项不进入 installed。不得通过模型调用、遍历旧版本目录或猜默认 cache 路径兜底。manifest 的 name 决定 NamePrefix，SKILL.md frontmatter 不改变 plugin namespace。
 
 Inventory 顺序为 Claude 原生扫描 → 三层 settings → plugin list → 安装目录定位/扫描 → Build 合并。probe Request 固定为：
 

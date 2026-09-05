@@ -74,12 +74,87 @@ $FIXTURE = 'C:/Users/j00466872/AppData/Local/Temp/skope-phase2-adddir-a18a7799'
 
 ### 第 10 条：plugin 缓存目录中 skill 的枚举来源与布局
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：不符（2026-09-05，已修订 spec §4.1/§7.1：不能只扫描 cache；门禁通过）。
+- agent：Claude Code `2.1.259`，Windows 11、PowerShell 7.6.5，与第 3 条同一绝对 PE。
+- 隔离根：`C:/Users/j00466872/AppData/Local/Temp/skope-phase2-plugin-09fc42ab`（以下 `$F`）；harness：`C:/Users/j00466872/AppData/Local/Temp/skope-phase2-task2.ps1`。HOME/USERPROFILE=`$F/home`，CLAUDE_CONFIG_DIR=`$F/claude`，SKOPE_HOME=`$F/skope`，默认 cwd=`$F/repo`（有空 `.git`）。provider 仅在模型调用时按第 3 条方式注入内存，输出只替换具体凭据/URL，不替换 `maxOutputTokens` 等数字。
+- 每次子进程 stdin EOF、超时 60 秒、stdout/stderr 分开保存。以下 CLI 命令均通过上述隔离 harness 执行；实验没有连接公网 marketplace。
+
+```text
+fixture/
+  home/  claude/  skope/
+  repo/.git/  repo/sub/  other/.git/
+  market/.claude-plugin/marketplace.json
+  market/{allowed-plugin,blocked-plugin,uninstalled-plugin}/
+    .claude-plugin/plugin.json
+    skills/check/SKILL.md
+  claude/skills/personal-auto/.claude-plugin/plugin.json
+  claude/skills/personal-auto/skills/check/SKILL.md
+  repo/.claude/skills/project-auto/.claude-plugin/plugin.json
+  repo/.claude/skills/project-auto/skills/check/SKILL.md
+  git-market/                         # 本地 git 仓库，cache-plugin/ 布局同上
+  claude/plugins/marketplaces/skope-git-fixture/ # 从本地 git clone
+  allow.json  override.json  bundled.json  auto-off.json  project-only.json  cache-only.json
+```
+
+marketplace JSON 为 `{"name":"skope-fixture","owner":{"name":"skope-test"},"plugins":[{"name":"allowed-plugin","source":"./allowed-plugin"},{"name":"blocked-plugin","source":"./blocked-plugin"},{"name":"uninstalled-plugin","source":"./uninstalled-plugin"}]}`；各 manifest 为 `{"name":"<目录名>","version":"1.0.0"}`。普通 plugin 的 SKILL.md frontmatter 为 `name: different-check-name`、`description: Controlled plugin verification`，正文要求仅返回 `SKOPE_<大写插件名，下划线替换连字符>_09fc42ab`。自动 plugin 的 frontmatter name 为 check，正文 marker 为 `AUTO_PLUGIN_09fc42ab`。
+
+```powershell
+& $CLAUDE_EXE plugin list --help
+& $CLAUDE_EXE plugin marketplace add "$F/market" --scope user
+& $CLAUDE_EXE plugin install allowed-plugin@skope-fixture --scope user
+& $CLAUDE_EXE plugin install blocked-plugin@skope-fixture --scope user
+& $CLAUDE_EXE plugin list --json
+& $CLAUDE_EXE plugin install allowed-plugin@skope-fixture --scope project
+& $CLAUDE_EXE plugin install allowed-plugin@skope-fixture --scope local
+& $CLAUDE_EXE plugin list --json                  # 分别在 repo、other、repo/sub 执行
+& $CLAUDE_EXE plugin list --json --available
+```
+
+| 对照/输出文件前缀 | 实际观察 |
+|---|---|
+| list-user / list-multi | 顶层数组；id/string、enabled/bool、scope/string、installPath/绝对字符串。相同 ID 的 user/project/local 是三行；project/local 另有 projectPath。version、installedAt、lastUpdated 是非关键字段 |
+| list-other / list-nested | 列表仍保留 repo 的 project/local 安装；不能把全部行直接当 cwd 有效位置，也不能过滤后判安装 missing |
+| list-default | 从所有 settings 删除 blocked-plugin 键后，该普通安装仍在列表，enabled=false；没有证明普通市场插件默认启用 |
+| list-available | 只有加 --available 才变 `{installed,available}`，未安装 uninstalled-plugin 只在 available；正式 probe 禁止该选项 |
+| list-auto | personal-auto@skills-dir 原地加载、scope=user、enabled=true、没有 settings 键；确有默认开启项。未信任 project 输出 `(suppressed)@skills-dir` 占位，空 installPath、enabled=false、version=unknown、notes 字符串数组 |
+| list-trusted-forward | 仅 fixture `.claude.json` 的 `projects[正斜杠绝对repo].hasTrustDialogAccepted=true` 后，list 列出 project-auto@skills-dir，scope=project、原地 installPath、无 projectPath。该步骤是预置隔离信任状态，不是测试交互信任 UI |
+| list-nested | cwd=repo/sub 不扫描 repo 的自动 plugin；只检查 cwd 自身，普通安装记录仍全列 |
+
+模型可见性调用统一后缀为 `--max-turns 1 --verbose --output-format stream-json`，完整参数如下；前两个对照在创建自动插件前执行：
+
+```powershell
+& $CLAUDE_EXE --settings "$F/allow.json" -p /allowed-plugin:check --max-turns 1 --verbose --output-format stream-json
+& $CLAUDE_EXE --settings "$F/override.json" -p /allowed-plugin:check --max-turns 1 --verbose --output-format stream-json
+& $CLAUDE_EXE --settings "$F/allow.json" -p /blocked-plugin:check --max-turns 1 --verbose --output-format stream-json
+& $CLAUDE_EXE --settings "$F/bundled.json" -p 'Reply OK only.' --max-turns 1 --verbose --output-format stream-json
+& $CLAUDE_EXE --settings "$F/auto-off.json" -p /personal-auto:check --max-turns 1 --verbose --output-format stream-json
+& $CLAUDE_EXE plugin install uninstalled-plugin@skope-fixture --scope project
+# cwd=other；此次调用后安装元数据新增该 ID 的 user 记录。
+& $CLAUDE_EXE --settings "$F/project-only.json" -p /uninstalled-plugin:check --max-turns 1 --verbose --output-format stream-json
+```
+
+- allow.json：allowed=true、blocked=false，disableBundledSkills=true。override.json 在此基础上增加 skillOverrides 的 `allowed-plugin:check` 与 `check` 均为 off。
+- bundled.json：allowed/blocked=false，disableBundledSkills=false。auto-off.json：三个 marketplace plugin 和两个 auto plugin 全 false，disableBundledSkills=true。project-only.json：同 auto-off，仅 uninstalled-plugin=true。
+- allowed/override 的 init.skills 都有 `allowed-plugin:check`，result 都返回唯一 allowed marker；namespace 取 manifest name，ID 仍为目录 basename check；skillOverrides 不能关闭 plugin skill。
+- blocked 的 init.skills 无 blocked-plugin:check，result 明确 `Unknown command: /blocked-plugin:check`。auto-off 的 init.plugins 为空，个人自动 plugin 同样 Unknown command。
+- bundled=false 对照（disableBundledSkills=true）只剩 doctor；bundled=true 时 init.skills 另有 batch、simplify、verify、debug、loop、claude-api 等。没有执行这些 bundled 技能。doctor 与 init 等内置命令仍存在，开关不承诺移除全部内置命令。
+- project-other 成功加载原本仅 project 安装的插件并返回 marker，但 probe 后 installed_plugins.json 新增 user 安装，不能据此宣称其他项目的 cache 安装直接生效。允许列表可能触发 Claude 自身自动安装，skope 只告警 missing 并写 true。
+
+加载根对照：
+
+| 来源/命令 | 证据 |
+|---|---|
+| directory marketplace | known_marketplaces.json 的 `skope-fixture.source={source:"directory",path:"<F>/market"}`、installLocation=`<F>/market`；catalog 精确 name 对应 source=`./allowed-plugin`。list.installPath 是存在的普通 cache 目录（非 symlink/Junction），init.plugins.path 却是 `<F>/market/allowed-plugin` |
+| source-only | 安装后仅源目录新增 skills/live-check/SKILL.md（正文 SOURCE_ONLY_09fc42ab），cache 无该入口。执行 `--settings <F>/allow.json -p /allowed-plugin:live-check --max-turns 1 --verbose --output-format stream-json`，init 列出 live-check 且 result 返回 SOURCE_ONLY_09fc42ab，证明不能扫旧 cache |
+| git cache 控制组 | CLI `marketplace add file:///...` 被拒绝；改为仅 fixture 建本地 git 仓库、`git clone <F>/git-market <F>/claude/plugins/marketplaces/skope-git-fixture`，预置 known_marketplaces 的 `source={source:"git",url:"file:///<F>/git-market"}` 与上述 installLocation（extraKnownMarketplaces 同 source）。真实 `plugin marketplace update skope-git-fixture` 退出 0。本实验不声称 CLI add 的 file URL 入口可用 |
+| cache-only | 真实 `plugin install cache-plugin@skope-git-fixture --scope user` 从本地 catalog 安装；首次预置错误 installLocation 有刷新告警，修正 clone 到标准位置后 update 成功。`--settings <F>/cache-only.json -p /cache-plugin:check --max-turns 1 --verbose --output-format stream-json` 的 init.path 等于 list.installPath 的 cache，result 返回 CACHE_PLUGIN_09fc42ab |
+| cache-scopes-root / cache-native-paths | 仅 fixture installed_plugins.json（version=2, plugins[id]=记录数组）换成 user/project/local 三条、分别指向 1.0.0/1.0.1/1.0.2，各有不同正文 marker；projectPath=repo。记录原序 user 在前时，repo 调用选 1.0.0，返回 CACHE_USER_09fc42ab |
+| cache-reverse / cache-reverse-other | 仅反转记录数组为 local/project/user。同样 cache-only 命令在 repo 选 1.0.2 并返回 CACHE_LOCAL_09fc42ab；other 选 1.0.0 并返回 CACHE_USER_09fc42ab，证明按原序首个适用项，不能排序 scope/version |
+| cache-reverse-nested | 同命令 cwd=repo/sub，init.plugins.path=1.0.2，说明子目录仍适用 projectPath；随后 provider 返回 403 额度不足，最终模型调用未完成。路径结论来自 init，未声称 marker 成功；此后停止模型调用，Task 17 真实验收需恢复 provider 额度 |
+
+cache-only.json 与 auto-off 相同，额外 cache-plugin@skope-git-fixture=true。真实 list fixture 保留原字段并以 `/fixture` 替换临时绝对根；目录来源元数据另存 package-local fixture。仅支持已明确定位的根；未知关键来源或含糊记录 fail-closed，不猜版本，也不运行额外模型 probe。所有控制组以 init 列表、路径及 CLI 确定性拒绝为主，marker 只辅助确认已执行的允许项。
+
+结论：第 10 条门禁通过，spec 已补实际 list 数组、自动 plugin/未信任占位、directory 原地加载、cache 记录顺序与 scope 规则；六个冻结类型不变。实验 fixture 和无秘密 harness 暂留供独立复核，未纳入产品源码。
 
 ## Codex（阻断 Phase 3）
 

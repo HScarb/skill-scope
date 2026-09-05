@@ -1,0 +1,18 @@
+{
+  "skope-fixture": {
+    "source": {
+      "source": "directory",
+      "path": "/fixture/market"
+    },
+    "installLocation": "/fixture/market",
+    "lastUpdated": "2026-09-05T12:39:22.755Z"
+  },
+  "skope-git-fixture": {
+    "source": {
+      "source": "git",
+      "url": "file:///fixture/git-market"
+    },
+    "installLocation": "/fixture/claude/plugins/marketplaces/skope-git-fixture",
+    "lastUpdated": "2026-09-05T12:45:13.814Z"
+  }
+}

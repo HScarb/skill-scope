@@ -1,0 +1,23 @@
+{
+  "plugins": [
+    {
+      "source": "./allowed-plugin",
+      "description": "Controlled local fixture",
+      "name": "allowed-plugin"
+    },
+    {
+      "source": "./blocked-plugin",
+      "description": "Controlled local fixture",
+      "name": "blocked-plugin"
+    },
+    {
+      "source": "./uninstalled-plugin",
+      "description": "Controlled local fixture",
+      "name": "uninstalled-plugin"
+    }
+  ],
+  "name": "skope-fixture",
+  "owner": {
+    "name": "skope-test"
+  }
+}

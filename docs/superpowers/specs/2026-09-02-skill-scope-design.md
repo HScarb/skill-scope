@@ -66,7 +66,7 @@
 | 项目 | 同上范围的 `.agents/skills` | Codex、OpenCode |
 | 项目 | 同上范围的 `.codex/skills` | Codex |
 | 项目 | 同上范围的 `.opencode/skill(s)` | OpenCode |
-| plugin | Claude 已安装 plugin 的 `skills/*/SKILL.md`（枚举来源待 §7.5 第 10 条验证后固化）；Codex `$CODEX_HOME/plugins` 缓存中的 skill | 各自 agent |
+| plugin | Claude `plugin list --json` 的真实安装项所对应加载根下 `skills/*/SKILL.md`，含 `@skills-dir` 自动 plugin；加载根解析见下。Codex `$CODEX_HOME/plugins` 缓存中的 skill | 各自 agent |
 
 不扫描的来源：OpenCode `skills.urls`（远程），检测到时告警「该来源不受 skope 管理」。
 
@@ -76,6 +76,17 @@
 - 递归查找 `.claude`、`.agents` 等目录时跳过 `.git`、`node_modules` 和任意符号链接目录。
 - 允许 `skills/<name>` 条目本身是 symlink 或 Junction，只跟随它检查直接子项 `SKILL.md`，不递归进入链接目标的其他目录。
 - 目录不存在（ENOENT）是正常情况。已进入的目录出现 EACCES、断链等错误时抛出清单错误。
+
+Claude plugin 枚举依据为 2.1.259 的真实实验（`docs/verification.md` 第 10 条）：
+
+- `plugin list --json` 返回数组；真实项有 `id`、`enabled`、`scope`、绝对 `installPath`，同 ID 多次安装保留多行及原顺序。普通 project/local 项带 `projectPath`；自动 project plugin 不带该字段。`--available` 会改为对象且混入市场候选，不能用于本契约。
+- installed 集合包含所有真实行的 ID，与当前 enabled 状态无关。列表也列出其他项目的安装；不得先按 cwd 过滤 installed 集合再判 missing。缓存加载根按列表原顺序取首个适用记录：user 对所有 cwd 适用，project/local 需 cwd 等于或位于 `projectPath` 目录内（按路径组件比较，不能字符串前缀）。不排序 scope 或版本号，不把历史缓存目录当当前入口。没有适用记录时只保留 installed ID，不建 native location；元数据损坏、未知来源或应存在根读失败才 fail-closed。后续 Claude 根据允许项自动安装的新位置不在本次 inventory 的预知范围。
+- 对 `@skills-dir`，直接使用 list 的原地 `installPath`。自动 plugin 来源包括 `$CLAUDE_CONFIG_DIR/skills/<name>/.claude-plugin/plugin.json` 与 cwd `.claude/skills/<name>/.claude-plugin/plugin.json`；项目项要求 workspace 已信任，且不向父目录扫描。普通 skill 扫描遇到 plugin manifest 目录必须停止，避免把内部 skill 重复当普通 native。
+- 精确占位形状 `id="(suppressed)@skills-dir"`、`scope="project"`、`enabled=false`、`installPath=""`、`version="unknown"`、字符串数组 `notes` 表示未信任项目的自动 plugin 被跳过；转为静态告警，不进入 installed/PluginIDs，不原样输出 notes。其他空路径或损坏关键字段 fail-closed。
+- 普通 marketplace plugin 必须读取 `$CLAUDE_CONFIG_DIR/plugins/known_marketplaces.json` 对应 marketplace 的 `source.source` 和 `installLocation`。`source.source="directory"` 时读取 `<installLocation>/.claude-plugin/marketplace.json`，按精确 plugin name 找到相对字符串 `source`，加载根为 marketplace 根加该路径；真实 Claude 会原地加载，list 的 cache 路径可能已有旧内容。其他已知缓存来源（git/github/url）使用适用 list 项的 `installPath`。无法解析的来源/非字符串 directory plugin source 明确 fail-closed；不再运行模型探测，也不读取完整用户配置作为替代。
+- plugin skill 的逻辑 ID 仍是 basename；Claude 有效名为 `<plugin manifest name>:<basename>`，不能用 marketplace ID 或 frontmatter name 代替 namespace。manifest name 缺失/错误应报清单错误。
+
+外来 `SKILL.md` 在 frontmatter 解析前检查入口和打开句柄的文件类型，只打开普通文件，按 §8.3 的 20 MiB 限额有界读取（最多限额加 1 byte）。特殊文件及超限入口保留构建 ID 所需的 location 和结构化拒绝原因；Names 留空，不伪造 frontmatter 回退值，不记 missing。普通文件打开由注入接口完成，必须防止 FIFO 在打开阶段阻塞；真实 I/O 或 frontmatter 错误仍 fail-closed。
 
 ### 4.2 结构
 
@@ -113,7 +124,7 @@ type Location struct {
 - **不按 realpath 去重**：Junction 把同一目录同时挂到 `.claude/skills/foo` 和 `.agents/skills/foo` 时，两个入口都保留，否则启动 Codex 时会误判 unavailable。`RealPath` 相同的入口在 `skope skills` 中标注「同一目标」。
 - **有效名**：`Names[claude]` = 目录名加作用域前缀；`Names[codex]`、`Names[opencode]` = `FrontmatterName`，缺失时回退目录名。只为该入口可见的 agent 填写。
 - **frontmatter 解析**：`SKILL.md` 第一行不是 `---` 时视为没有 frontmatter；合法 frontmatter 没有 `name` 时 `FrontmatterName` 为空。第一行是 `---` 但 YAML 非法、缺少结束分隔符或 `name` 不是字符串时 fail-closed，错误必须包含该 `SKILL.md` 的 `DiscoveryPath`。选择 fail-closed，因为 Codex/OpenCode 的有效名依赖该字段，静默回退会让白名单命中错误对象。
-- **选择语义**：skill set 选中一个 ID，即在每个 agent 上开启该 ID 全部可见 location 的有效名。不提供按路径限定选择的语法。
+- **选择语义**：skill set 选中一个 ID，即在每个 agent 上开启该 ID 全部符合 §4.4 条件的可见 location 有效名；plugin 仍需独立允许。不提供按路径限定选择的语法。
 - **碰撞告警**（`skope skills` 与启动摘要均报告）：
   - 同 ID 多入口且 `RealPath` 不同：内容可能不一致。
   - `FrontmatterName` 与目录名不一致。
@@ -124,14 +135,16 @@ type Location struct {
 
 启动 agent X 时，对白名单里的每个 ID：
 
-1. 若任一 location 对 X 可见，走 X 的原生开关，记为 `native`。
+1. 若任一普通 location 对 X 可见，走 X 的原生开关，记为 `native`；plugin location 只有其 PluginID 被对应 `plugins` 允许列表选中时才可作为 native。选中 skill ID 不隐式开启 plugin，普通同 ID native 仍优先。
 2. 否则若 X 支持投影（Claude、OpenCode），从 location 中按优先级选一个通过 §8.3 自包含检查后复制到会话目录注入，记为 `projected`。v1 不投影 plugin 级 location。
-3. 否则记为 `unavailable`，摘要里给出原因：Codex 不支持投影、仅存在于 plugin、或自包含检查失败。
+3. 否则记为 `unavailable`，摘要里给出原因：Codex 不支持投影、仅存在于未允许的 plugin、入口特殊/超限、目标冲突、或自包含检查失败。拒绝一个候选后继续尝试下一个 location。
 4. ID 在全集中不存在时记为 `missing`，告警继续。
 
 command 类 location 仅 Claude 可见，不可投影，但必须进入 Claude 的白名单全集。
 
 skill set 只存 ID，不存路径。来源每次启动重新扫描解析。
+
+投影按 selection 顺序保留首个通过检查且目标未被占用的候选；后续目标冲突 ID 为 unavailable。所有平台对目标路径逐组件采用 `strings.EqualFold` 保守判断大小写别名（如 Foo/foo）；即使 Linux 目录允许并存也拒绝，以便 dry-run 无需写入探测。ID 与有效名保留原大小写。这不是所有文件系统 Unicode 等价规则的完整模型，写入还须独占创建兜底。
 
 ## 5. 配置文件
 
@@ -329,10 +342,12 @@ Capabilities 取值：
 
 | 步骤 | 内容 |
 |---|---|
-| Inventory | 扫描 Claude 可见目录；读 user/project/local 三层 settings 的 `skillOverrides` 与 `enabledPlugins` 键，user 层路径 = `$CLAUDE_CONFIG_DIR`（trim 后非空则用）否则 `~/.claude`，project/local 层为仓库根 `.claude/` 下同名文件；运行 `claude plugin list --json`（§9.2 契约）获取已安装 plugin 完整 ID，校验 `id`、`enabled`、`scope`，ID 必须两段。已安装但未在任何 settings 中列出的 plugin 也进入全集，否则其 `defaultEnabled` 会让它漏进会话 |
+| Inventory | 扫描 Claude 可见目录；读 user/project/local 三层 settings 的 `skillOverrides` 与 `enabledPlugins` 键，user 层路径 = `$CLAUDE_CONFIG_DIR`（trim 后非空则用）否则 `~/.claude`，project/local 层为仓库根 `.claude/` 下同名文件；运行一次 `claude plugin list --json`（§9.2 契约），按 §4.1 校验和定位真实 plugin。`Inventory.PluginIDs = installed ∪ settings 已有键`；允许项是否 missing 必须在丢弃 installed 集合前判断。没有 settings 键的自动 plugin 也可能默认开启，必须进入全集 |
 | settings | 写 `<session>/claude/settings.json`：`skillOverrides` 对全集逐个写 `on`/`off`，全集 = 扫描到的 Claude 有效名 ∪ settings 已有键 ∪ 投影进来的名字；`enabledPlugins` 对全集逐个写 true/false，全集 = 已安装 ∪ settings 已有键 ∪ 允许列表；`disableBundledSkills = !bundled` |
 | 投影 | 外来 skill 复制到 `<session>/claude/addDir/.claude/skills/<basename>/` |
 | ControlArgs | `--settings <session>/claude/settings.json`，有投影时加 `--add-dir <session>/claude/addDir` |
+
+启动工厂在解析 executable 和合并 selection 后，将不可变 `claude.Options{Executable, Plugins, Bundled}` 传入 adapter；复制 Plugins，不能通过可变 Inventory 缓存或新增冻结类型字段传选择。插件允许列表控制整个插件，不能靠 skillOverrides 关闭其中单个 skill。`disableBundledSkills` 控制 Claude 的可选 bundled skills；2.1.259 下 `doctor` 等仍可见的内置命令不属于“全部消失”的承诺。允许列表中的未安装项仍写 true 并告警 missing，后续 Claude 自身可能自动安装；skope 不执行 install。
 
 只调用一次 `plugin list`。它不区分「用户开启、依赖强制、managed policy 强制」，因此 skope 不报告依赖闭包和 policy 强制项。这不影响隔离结果：所有非允许 plugin 均写 false，policy 强制项本来就高于 `--settings`。参考实现的三阶段探测约增加 1 s 启动时间，只换来更精确的摘要，v1 不采用。
 
@@ -363,6 +378,8 @@ Capabilities 取值：
 
 各 adapter 的白名单和 denylist 都使用 `Location.Names[agent]`，而不是 ID。同一 ID 的多个可见 location 的有效名全部进入允许集合。
 
+Claude plugin location 需先通过 `plugins.claude` 允许条件；`skills=["check"]` 不隐式打开 `some-plugin@marketplace`。只存在于未允许 plugin 的 ID 为 unavailable；同 ID 的普通 native 可继续使用。允许 plugin 会暴露它的全部 skills，不宣称实现插件内部逐 skill 隔离。
+
 ### 7.5 真实 agent 验证（按 agent 分组阻断）
 
 每项记录 agent 版本、完整命令、可重复的 fixture 目录和结论，写入 `docs/verification.md`。验证按 agent 分组，每组只阻断对应 adapter 所在的实施阶段（§14），不阻断整体：
@@ -384,7 +401,7 @@ Capabilities 取值：
 7. OpenCode：兼容目录 `.claude/skills`、`.agents/skills` 中嵌套项目目录 skill 的有效名——是否为目录 basename（无作用域前缀），根级与嵌套同名是否冲突。
 8. OpenCode：配置文件发现与合并顺序（`~/.config/opencode/opencode.json(c)` → `OPENCODE_CONFIG` → 项目级 → `OPENCODE_CONFIG_CONTENT`），以及 jsonc 注释是否被接受。
 9. Codex：plugin ID 的实际格式是否恒为 `name@marketplace` 两段（`skillsets.toml` 校验按此写死）；`-c` 注入的 `skills.config` 数组与用户层 `[[skills.config]]` 合并时是替换还是按 `path` 并集。
-10. Claude：plugin 缓存目录中 skill 的枚举来源与布局（仅影响 `skope skills` 展示，不影响隔离；结论写入 §4.1 plugin 行的依据）。
+10. Claude：plugin 的枚举来源、原地/缓存加载根、自动 plugin 与 namespace（影响 `skope skills`、native 判定与 plugin 全集关闭；结论写入 §4.1）。
 
 ## 8. 启动流程与会话目录
 
@@ -421,11 +438,13 @@ Windows 上正常退出立即清理；崩溃残留由回收兜底。Windows 不�
 
 对选定的 location 目录：
 
-1. 若入口本身是 symlink/Junction，解析到 `RealPath` 作为复制根。
-2. 递归复制目录。遇到内部 symlink：目标解析后仍在复制根内则复制目标内容；否则整个 skill 判定 `unavailable`，原因「引用目录外内容」。
+1. `DiscoveryPath`/`RealPath` 均指向 `SKILL.md`，复制根取 `Dir(DiscoveryPath)` 解析后的目录，不把 `SKILL.md` 文件自身当复制根。入口 symlink/Junction 可解析后检查。
+2. 递归检查目录。内部 symlink 的目标仍在复制根内则复制目标内容；否则整个 skill 为 unavailable。链接环、特殊文件及含改变 agent 加载语义的 plugin manifest 目录不可投影。
 3. 上限：2000 个文件或 20 MiB，超出判定 `unavailable`。
 4. 文本启发式：扫描 `.md` 文件中的 `../`、`${CLAUDE_PLUGIN_ROOT}`、`${CODEX_PLUGIN_ROOT}` 与绝对路径引用，命中只告警「可能引用外部文件，投影后可能不完整」，不阻断。
 5. 复制后的文件权限 `0o600`，目录 `0o700`。
+6. 检查阶段记录路径、大小及内容摘要，复制前复查；检查后源内容改变时失败并清理 staging，不能发布部分内容。真实读写错误 fail-closed。
+7. skill 内文件/目录路径逐组件按 `strings.EqualFold` 检查别名和文件/目录冲突；允许共享完全同名父目录，拒绝 `Refs/a.md` 与 `refs/b.md` 等别名。写文件必须使用锚定 staging 的独占创建（`O_CREATE|O_EXCL`），不能 O_TRUNC、先删再写或先 Stat 再非独占创建；已有目标导致整次会话失败且原内容保持不变。
 
 ### 8.4 进程启动
 
@@ -590,7 +609,7 @@ config       → host
 - 包名短、小写、单个词、无下划线；不设 `util`/`common`/`helpers` 包。`skill.Skill` 的重名与 `context.Context` 同类，接受。
 - 接口在消费方定义。`Adapter` 定义在 `internal/agent`，实现在子包；注册表由 `cli` 显式构造并传入，禁止 `init()` 副作用注册。
 - I/O 全部注入：文件系统走 `fs.FS`（写入走 `config`/`session` 自定义的最小接口），环境走 `host.Env`，子进程走 `proc.Runner`。`skill`、`config`、`projection` 的核心逻辑不 import `os`。
-- 平台差异只出现在 `handoff` 与 `session` 的 `_unix.go`/`_windows.go` 文件（`//go:build unix` 与文件名后缀），其他包不写平台分支。
+- 平台差异放在 `handoff`、`session`、`proc` 以及 `host` 的普通文件打开/路径检查专用 `_unix.go`/`_windows.go` 文件（`//go:build unix` 与文件名后缀）；通用业务文件不混写 GOOS 分支。
 - 每个包用 sentinel 或类型化错误暴露可判定的失败，调用方用 `errors.Is`/`errors.As`；包装用 `%w`；§10 的用户可见文案只在 `cli` 拼装。
 - 数据结构按值传递或返回新副本，不就地修改入参（仓库根 CLAUDE.md 不可变要求）。
 - 单元测试用 `package xxx_test` 黑盒风格，只测 §12 列出的 seam；golden 文件与 fixture 放各包 `testdata/`，用 `-update` flag 重生成。集成测试在 `internal/cli`，`testing.Short()` 时跳过。
@@ -677,6 +696,7 @@ Phase 3 与 Phase 4 互不依赖，可并行。
 范围：
 
 - `internal/proc`（§9.2）；`claude plugin list --json` 解析与校验；`enabledPlugins` 全集逐项写入；`disableBundledSkills`；§5.3 `plugins.claude` 与 `bundled` 生效；扫描范围表启用 Claude plugin 行。
+- 提前启用 `~/.agents/skills` 与 `$CODEX_HOME/skills` 两条全局外来扫描行，仅供 Claude 投影；Names 按来源填写，不注册 Codex/OpenCode adapter。其他 Codex 项目/admin/plugin 与 OpenCode 配置扫描仍留后续阶段。
 - `internal/projection`：§8.3 复制契约与自包含检查；`launch` 接入投影步骤，`<session>/claude/addDir`，`--add-dir`；§4.4 `projected`/`unavailable` 分支。
 - §6.2 冲突参数检测（Claude 行）。
 - §6.6 摘要；`internal/termsafe`（§9.1）接入全部外部文本输出。
@@ -690,9 +710,9 @@ Phase 3 与 Phase 4 互不依赖，可并行。
 
 范围：
 
-- 扫描范围表启用 Codex 行（`~/.agents/skills`、`$CODEX_HOME/skills`、`.codex/skills`、`/etc/codex/skills`、plugin 缓存）。
+- 复用 Phase 2 已提前启用的 `~/.agents/skills`、`$CODEX_HOME/skills` 全局行，补齐其余 Codex 行（项目 `.agents/skills`、`.codex/skills`、`/etc/codex/skills`、plugin 缓存）。
 - `internal/agent/codex`：`$CODEX_HOME/config.toml` 的 `[plugins.*]` 与缓存目录组成 plugin 全集；`-c skills.config` denylist（canonicalize 后的绝对 `SKILL.md` 路径）；`skills.bundled.enabled`；plugin 关闭参数。
-- 首次启用跨 agent 可见性：`Capabilities.Projection = false` 对应的 `unavailable` 分支与原因文案；§5.3 `plugins.codex` 生效。
+- 启用 Codex 目标的跨 agent 可见性：`Capabilities.Projection = false` 对应的 `unavailable` 分支与原因文案；§5.3 `plugins.codex` 生效。Claude 目标的外来投影已在 Phase 2 启用。
 - §6.2 冲突参数检测（Codex `-c skills.*`/`plugins.*`，含 `-c=...` 取值形式）。
 
 退出标准：golden file 断言 `-c` 参数序列；fake agent 集成测试；真实 Codex 手工验证 denylist 生效与 symlink 入口 canonicalize 匹配。
