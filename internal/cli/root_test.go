@@ -165,6 +165,24 @@ func TestClaudeCommandReportsParseAndRunnerErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("required skill set", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		app := cli.Application{RunLaunch: func(context.Context, launch.Request, launch.Reporter) error {
+			return launch.ErrSetRequired
+		}}
+
+		code := app.Execute([]string{"claude"}, &stdout, &stderr, "test")
+
+		if code != 1 {
+			t.Fatalf("exit code = %d, want 1", code)
+		}
+		for _, fragment := range []string{"-s <name>", "-s none"} {
+			if !strings.Contains(stderr.String(), fragment) {
+				t.Errorf("stderr %q does not contain %q", stderr.String(), fragment)
+			}
+		}
+	})
+
 	t.Run("missing runner", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 

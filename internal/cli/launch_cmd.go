@@ -44,6 +44,9 @@ func newLaunchCmd(agent skill.Agent, runner launchRunner) *cobra.Command {
 				return reportLaunch(cmd.OutOrStdout(), agent, parsed, result)
 			}
 			if err := runner(cmd.Context(), request, report); err != nil {
+				if errors.Is(err, launch.ErrSetRequired) {
+					return fmt.Errorf("launch %s: pass -s <name> or -s none: %w", agent, err)
+				}
 				return fmt.Errorf("launch %s: %w", agent, err)
 			}
 			return nil
