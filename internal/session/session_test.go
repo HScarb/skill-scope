@@ -558,11 +558,18 @@ func TestManagerReapContinuesAfterRemoveError(t *testing.T) {
 	if err := os.WriteFile(lockedPath, []byte("locked"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	locked, err := os.Open(lockedPath)
+	if err := os.Chtimes(blocked, testNow.Add(-2*time.Hour), testNow.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	locked, err := lockDeletion(lockedPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = locked.Close() })
+	t.Cleanup(func() {
+		if err := locked.Close(); err != nil {
+			t.Errorf("close deletion lock: %v", err)
+		}
+	})
 	makeAgedDir(t, sessionsRoot, "removable", testNow.Add(-2*time.Hour))
 
 	warnings := m.Reap()
