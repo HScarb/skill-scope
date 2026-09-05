@@ -1,3 +1,4 @@
+// Package agent defines the interface and launch data shared by agent adapters.
 package agent
 
 import (

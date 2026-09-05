@@ -650,7 +650,7 @@ func entryNames(entries []os.DirEntry) []string {
 	return names
 }
 
-func writeOwnerDir(t *testing.T, root, name string, owner session.Owner, mtime time.Time) string {
+func writeOwnerDir(t *testing.T, root, name string, owner session.Owner, mtime time.Time) {
 	t.Helper()
 	dir := makeAgedDir(t, root, name, mtime)
 	raw, err := json.Marshal(owner)
@@ -663,7 +663,6 @@ func writeOwnerDir(t *testing.T, root, name string, owner session.Owner, mtime t
 	if err := os.Chtimes(dir, mtime, mtime); err != nil {
 		t.Fatal(err)
 	}
-	return dir
 }
 
 func validOwner(pid int, token string) session.Owner {
@@ -676,7 +675,7 @@ func validOwner(pid int, token string) session.Owner {
 	}
 }
 
-func writeRawOwnerDir(t *testing.T, root, name, raw string, mtime time.Time) string {
+func writeRawOwnerDir(t *testing.T, root, name, raw string, mtime time.Time) {
 	t.Helper()
 	dir := makeAgedDir(t, root, name, mtime)
 	if err := os.WriteFile(filepath.Join(dir, "owner.json"), []byte(raw), 0o600); err != nil {
@@ -685,7 +684,6 @@ func writeRawOwnerDir(t *testing.T, root, name, raw string, mtime time.Time) str
 	if err := os.Chtimes(dir, mtime, mtime); err != nil {
 		t.Fatal(err)
 	}
-	return dir
 }
 
 func makeAgedDir(t *testing.T, root, name string, mtime time.Time) string {

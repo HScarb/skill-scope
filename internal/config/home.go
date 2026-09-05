@@ -11,11 +11,12 @@ import (
 // ResolveHome returns the absolute skope home path from the environment.
 func ResolveHome(env host.Env) (string, error) {
 	value := strings.TrimSpace(env.Get("SKOPE_HOME"))
-	if value == "" {
+	switch {
+	case value == "":
 		value = filepath.Join(env.Home(), ".skope")
-	} else if value == "~" {
+	case value == "~":
 		value = env.Home()
-	} else if strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+	case strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`):
 		value = filepath.Join(env.Home(), value[2:])
 	}
 

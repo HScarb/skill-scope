@@ -1,3 +1,4 @@
+// Package handoff transfers execution to a coding agent on supported platforms.
 package handoff
 
 import "errors"

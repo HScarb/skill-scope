@@ -1,3 +1,4 @@
+// Package config loads and validates skope configuration.
 package config
 
 import (

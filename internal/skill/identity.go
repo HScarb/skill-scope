@@ -1,3 +1,4 @@
+// Package skill models discovered coding-agent skills and resolves their identities.
 package skill
 
 import (
@@ -69,7 +70,7 @@ func locationID(location Location) string {
 
 func commandName(discoveryPath string) string {
 	const marker = "/commands/"
-	name := discoveryPath
+	var name string
 	if index := strings.LastIndex(discoveryPath, marker); index >= 0 {
 		name = discoveryPath[index+len(marker):]
 	} else {

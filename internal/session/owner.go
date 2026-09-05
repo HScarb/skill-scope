@@ -1,3 +1,4 @@
+// Package session manages launch session directories and their ownership metadata.
 package session
 
 import (

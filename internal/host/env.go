@@ -1,3 +1,4 @@
+// Package host captures the host environment used to launch coding agents.
 package host
 
 import (

@@ -1,3 +1,4 @@
+// Package claude provides the Claude Code agent integration.
 package claude
 
 import (
