@@ -307,19 +307,19 @@ git commit -m "test: support Claude plugin probes in the fake agent"
 - Create: `internal/proc/process_unix.go`、`internal/proc/process_unix_test.go`。
 - Create: `internal/proc/process_windows.go`（本 Task 只提供可构建的明确 unsupported；Task 6 完成）。
 
-- [ ] **Step 1: 写受控子进程测试**
+- [x] **Step 1: 写受控子进程测试**
 
 用当前测试二进制的 `TestProcHelperProcess` 作为 helper，参数明确限定 helper 分支，避免递归跑全部测试。测试包括：成功输出、非零退出、stdin 立即 EOF、继承指定 cwd/env、父 context 已取消、timeout、stdout 超限、stderr 超限、子进程生成孙进程持续持有 pipe。
 
 固定默认值为 15 s 与每路 4 MiB；测试使用更短的注入上限，并额外覆盖默认常量。恰好达到上限成功，多一个 byte 失败；两路分别 3 MiB 成功，不能把它们错误合并为 4 MiB。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/proc -run 'TestRunner|TestLimits' -v`
 
 Expected：FAIL。Unix 进程组行为在 Linux/macOS 执行；Windows 暂只跑通用边界测试。
 
-- [ ] **Step 3: 实现 Runner 与平台执行入口**
+- [x] **Step 3: 实现 Runner 与平台执行入口**
 
 ```go
 const DefaultTimeout = 15 * time.Second
@@ -357,18 +357,20 @@ Unix 实现：
 
 不使用临时文件：输出限制已经允许内存缓冲，因此 §9.2 临时文件契约无本期实例。以后若引入临时文件，必须同时实现随机名、0600 和全路径清理。
 
-- [ ] **Step 4: 回归进程树和错误边界**
+- [x] **Step 4: 回归进程树和错误边界**
 
 Run: `go test ./internal/proc -v`
 
 Expected：PASS；用 helper 的 PID/结束同步信号验证孙进程结束，不能仅断言 Run 很快返回；避免仅靠固定 sleep 制造时序。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/proc
 git commit -m "feat: bound auxiliary processes and terminate Unix process groups"
 ```
+
+实施记录（2026-09-05）：先新增黑盒 helper 测试，首次 `go test ./internal/proc -timeout 60s` 因尚无生产实现而失败。实现后，Windows `go test -short ./...` 通过；Linux/WSL Go 1.27.1 的完整 `proc` 测试与 `go test -race ./internal/proc -timeout 90s` 通过。默认 15 s、每路 4 MiB，错误 stderr 原始前缀最多 2 KiB；验证两路各 3 MiB、精确上限/多一个 byte、stdin EOF、显式空环境、提前取消、超时、退出码与敏感输出边界。后代测试使用 TCP 就绪与连接 EOF 同步，覆盖取消、超时、输出超限、父进程先退出持 pipe、正常父进程退出留下无 pipe 后代。gofmt/goimports 与局部 golangci-lint（0 issues）完成。通用层收齐一次 Wait 与两个读取结果，Unix 用独立进程组清理；Windows 本任务只提供明确 `ErrUnsupported`，执行行为测试保留到 Task 6，未更改 handoff。
 
 ### Task 6: Windows 辅助子进程的独立 Job
 
