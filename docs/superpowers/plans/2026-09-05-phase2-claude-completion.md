@@ -1241,7 +1241,14 @@ Task 15 help 边界复查（2026-09-06）：
 - 独立 review 发现默认 Cobra help 未知主题使用反引号引用，U+202E 会原样进入 stdout 且返回 0；未知主题随后 Usage 写失败会经 CheckErr 调用 os.Exit。黑盒与限时 helper 子进程先复现这两个失败，再替换为返回 error 的 help RunE，保留默认帮助元数据及补全函数。
 - 合法帮助沿用描述与 Usage 的布局，由 renderHelp 检查写错误；Usage 自行打印的原始诊断先捕获，其 error 交给 Application.Execute 安全输出。--help 的无返回值回调错误保留到现有输出错误状态。正文首段失败、Usage 模板阶段失败均只输出一次安全错误，未知主题失败不会终止调用方进程。
 - Windows 与 WSL 的 CLI/termsafe 回归通过；gofmt/goimports、局部 lint 0 issues、diff 检查通过。四种公开 completion 脚本生成命令的危险 writer 错误也只经过安全出口。
-- 同轮发现隐藏 __complete 的 Cobra CompErrorln 会直写全局 os.Stderr，非法 flag+bidi 可触发；该独立边界已报告主任务，留后续 focused 修复，本条不声称其已经解决。
+- 同轮发现隐藏 __complete 的 Cobra CompErrorln 会直写全局 os.Stderr，非法 flag+bidi 可触发；该独立边界由下述 hidden completion focused 修复封口。
+Task 15 hidden completion 边界复查（2026-09-06）：
+
+- 红灯：实际 BuildSkope 二进制的 __complete / __completeNoDesc 接受非法 flag 中的 U+202E 或 CSI，并经 Cobra CompErrorln 直写全局 stderr，返回 0 和 :0。无前缀、--help=false、-h=false 三种入口全部复现；Application 黑盒另外覆盖 C0/DEL/C1/方向控制字符。
+- 修复：进入 Cobra 前仅对含 termsafe 控制字符的参数组预检。临时注册与 initCompleteCmd 一致的名字及 alias，通过同一个 root.Find 判断是否确为隐藏补全请求，随即移除；匹配才返回固定安全错误。nil args 按 Cobra 相同的 os.Args[1:] 回退识别。正常中文、路径、四种补全脚本、合法隐藏补全保持原协议；claude 后面的 __complete 普通参数不受影响。
+- 安全性与协议：含控制字符的补全请求返回 1 和单一安全 Error；纯 ASCII 非法 flag 保留 Cobra 的 exit 0 / :0 补全协议与普通诊断。当前静态命令树没有其他动态补全数据源；不改全局 os.Stderr、不 fork Cobra、不关闭正常补全。
+- 验证：Windows CLI/termsafe（含实际二进制 stderr）和全仓 short 通过；WSL CLI/termsafe 同样通过实际二进制测试；gofmt/goimports、两包 lint 0 issues、diff 检查通过。
+
 ### Task 16: fake agent 端到端与回归矩阵
 
 **Files:**

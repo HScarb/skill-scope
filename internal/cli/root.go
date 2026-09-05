@@ -4,8 +4,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/agent/claude"
@@ -51,7 +53,10 @@ func (a Application) Execute(args []string, stdout, stderr io.Writer, version st
 		}
 	})
 
-	err := root.Execute()
+	err := checkCompletionArgs(root, args)
+	if err == nil {
+		err = root.Execute()
+	}
 	if err == nil {
 		err = output.err
 	}
@@ -60,6 +65,37 @@ func (a Application) Execute(args []string, stdout, stderr io.Writer, version st
 		return 1
 	}
 	return 0
+}
+
+// Cobra completion diagnostics bypass SetErr. Reject control-bearing requests
+// before that protocol runs, using the same command lookup as initCompleteCmd.
+func checkCompletionArgs(root *cobra.Command, args []string) error {
+	if args == nil {
+		args = os.Args[1:]
+	}
+	hasControls := false
+	for _, arg := range args {
+		if termsafe.Escape(arg) != arg {
+			hasControls = true
+			break
+		}
+	}
+	if !hasControls {
+		return nil
+	}
+	complete := &cobra.Command{
+		Use:     cobra.ShellCompRequestCmd + " [command-line]",
+		Aliases: []string{cobra.ShellCompNoDescRequestCmd},
+		Hidden:  true,
+		Args:    cobra.ArbitraryArgs,
+	}
+	root.AddCommand(complete)
+	target, _, err := root.Find(args)
+	root.RemoveCommand(complete)
+	if err == nil && target == complete {
+		return errors.New("shell completion arguments contain terminal control characters")
+	}
+	return nil
 }
 
 // Retain short writes and help callback errors for the exit status.
