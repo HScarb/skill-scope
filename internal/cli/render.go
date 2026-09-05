@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,12 +9,44 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/scarb/skope/internal/config"
 	"github.com/scarb/skope/internal/launch"
 	"github.com/scarb/skope/internal/skill"
 	"github.com/scarb/skope/internal/termsafe"
+	"github.com/spf13/cobra"
 )
+
+// Render the standard help layout without Help/UsageString's process exit path.
+func renderHelp(cmd *cobra.Command) error {
+	description := cmd.Long
+	if description == "" {
+		description = cmd.Short
+	}
+	if description = strings.TrimRightFunc(description, unicode.IsSpace); description != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", description); err != nil {
+			return err
+		}
+	}
+	if !cmd.Runnable() && !cmd.HasSubCommands() {
+		return nil
+	}
+	// Usage returns its template error but also prints it; retain the error and
+	// leave all diagnostic output to Application.Execute's safe error boundary.
+	previous := cmd.ErrOrStderr()
+	var diagnostics bytes.Buffer
+	cmd.SetErr(&diagnostics)
+	err := cmd.Usage()
+	cmd.SetErr(previous)
+	if err != nil {
+		return err
+	}
+	if diagnostics.Len() != 0 {
+		return errors.New(strings.TrimSuffix(diagnostics.String(), "\n"))
+	}
+	return nil
+}
 
 func reportLaunch(writer io.Writer, agent skill.Agent, parsed parsedLaunchArgs, result launch.Result) error {
 	displayName, err := selectedDisplayName(parsed.setValue, result.NoIsolation)

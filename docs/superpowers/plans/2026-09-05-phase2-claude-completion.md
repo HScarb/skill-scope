@@ -1236,6 +1236,12 @@ Task 15 执行记录（2026-09-06）：
 - 验证：Windows go test ./internal/cli ./internal/termsafe -v -timeout 120s、go test -short ./... 通过；WSL 相同两包测试通过，执行既有真实 fake-agent 生产回归。golangci-lint v2.13.2 fmt（gofmt/goimports）及两包 run 为 0 issues，git diff --check 通过。CLI golden 复用已有 .gitattributes LF 规则。
 - 范围：只修改 CLI 展示、测试与本 Task 记录；冻结类型、AGENTS、真实配置与 Claude API 均未修改/调用。Windows full active 仍受既有 process/handoff 平台限制，本任务未扩展该能力；Task 16/17 留待后续。
 
+Task 15 help 边界复查（2026-09-06）：
+
+- 独立 review 发现默认 Cobra help 未知主题使用反引号引用，U+202E 会原样进入 stdout 且返回 0；未知主题随后 Usage 写失败会经 CheckErr 调用 os.Exit。黑盒与限时 helper 子进程先复现这两个失败，再替换为返回 error 的 help RunE，保留默认帮助元数据及补全函数。
+- 合法帮助沿用描述与 Usage 的布局，由 renderHelp 检查写错误；Usage 自行打印的原始诊断先捕获，其 error 交给 Application.Execute 安全输出。--help 的无返回值回调错误保留到现有输出错误状态。正文首段失败、Usage 模板阶段失败均只输出一次安全错误，未知主题失败不会终止调用方进程。
+- Windows 与 WSL 的 CLI/termsafe 回归通过；gofmt/goimports、局部 lint 0 issues、diff 检查通过。四种公开 completion 脚本生成命令的危险 writer 错误也只经过安全出口。
+- 同轮发现隐藏 __complete 的 Cobra CompErrorln 会直写全局 os.Stderr，非法 flag+bidi 可触发；该独立边界已报告主任务，留后续 focused 修复，本条不声称其已经解决。
 ### Task 16: fake agent 端到端与回归矩阵
 
 **Files:**

@@ -44,6 +44,12 @@ func (a Application) Execute(args []string, stdout, stderr io.Writer, version st
 	root.SetArgs(args)
 	root.SetOut(output)
 	root.SetErr(stderr)
+	// Cobra's HelpFunc cannot return an error to Execute.
+	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
+		if err := renderHelp(cmd); output.err == nil {
+			output.err = err
+		}
+	})
 
 	err := root.Execute()
 	if err == nil {
@@ -56,7 +62,7 @@ func (a Application) Execute(args []string, stdout, stderr io.Writer, version st
 	return 0
 }
 
-// Cobra's help handler discards writer errors; retain them for the exit status.
+// Retain short writes and help callback errors for the exit status.
 type errorTrackingWriter struct {
 	writer io.Writer
 	err    error
@@ -82,7 +88,26 @@ func newRootCmd(version string, loadSkillSets listLoader, runLaunch launchRunner
 	}
 	root.SetUsageTemplate(rootUsageTemplate)
 	root.AddCommand(newLaunchCmd(skill.AgentClaude, runLaunch), newListCmd(loadSkillSets), newVersionCmd(version))
+	root.InitDefaultHelpCmd()
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "help" {
+			// Preserve Cobra's help metadata and completion while avoiding CheckErr.
+			cmd.Run = nil
+			cmd.RunE = runHelp
+		}
+	}
 	return root
+}
+
+func runHelp(cmd *cobra.Command, args []string) error {
+	target, remaining, err := cmd.Root().Find(args)
+	if err != nil || target == nil || len(remaining) != 0 {
+		return fmt.Errorf("unknown help topic %q", args)
+	}
+	target.SetContext(cmd.Context())
+	target.InitDefaultHelpFlag()
+	target.InitDefaultVersionFlag()
+	return renderHelp(target)
 }
 
 const rootUsageTemplate = `Usage:{{if .Runnable}}
