@@ -254,7 +254,7 @@ git commit -m "feat: escape terminal text and redact environment values"
 - Modify: `internal/testutil/build_test.go`。
 - Create: `internal/testutil/probe_test.go`。
 
-- [ ] **Step 1: 写调用真实 helper 二进制的失败测试**
+- [x] **Step 1: 写调用真实 helper 二进制的失败测试**
 
 `testing.Short()` 时跳过构建测试；使用 `testutil.BuildFakeAgent(t)`，设置独立输出路径。覆盖：
 
@@ -266,15 +266,15 @@ git commit -m "feat: escape terminal text and redact environment values"
 | 设置 `FAKEAGENT_PROBE_LOG=<file>` | 追加一次 argv/env/cwd JSON record，使用独立日志 |
 | 普通 argv | 保留原 FAKEAGENT_OUT/FAKEAGENT_EXIT 契约 |
 
-空列表默认形状取 Task 2 已验证的实际结构，不预设它一定是 `[]`。
+空列表默认形状已按 Task 2 的真实验证结果确定为 `[]`。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/testutil -run 'TestFakeAgentPlugin|TestBuildFakeAgent' -v`
 
 Expected：plugin list 被旧 run 当作启动记录，测试 FAIL。
 
-- [ ] **Step 3: 在原 run 的开头分流**
+- [x] **Step 3: 在原 run 的开头分流**
 
 ```go
 func isPluginList(args []string) bool {
@@ -284,18 +284,20 @@ func isPluginList(args []string) bool {
 
 只有精确匹配才调用独立的 `runPluginList`，普通 run 保持原意。探测日志不能包含仓库外真实用户环境；测试进程传临时 home 和测试变量，敏感值不输出到失败日志。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 Run: `go test ./internal/testutil -v`
 
 Expected：旧构建测试与新增探测测试 PASS，普通退出码 23 不影响探测。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/testutil
 git commit -m "test: support Claude plugin probes in the fake agent"
 ```
+
+实施记录（2026-09-05）：先新增真实 helper 测试，确认旧实现以 99/23 退出导致红灯；实现精确分流、原样输出、独立退出码和追加 JSONL 后，`go test ./internal/testutil -v` 与 `go test -short ./...` 通过。补充显式空 JSON、无效探测退出码、参数缺失/多余/近似匹配、连续探测不覆盖普通启动记录；测试仅传临时 HOME/USERPROFILE/CLAUDE_CONFIG_DIR 与必要系统变量，失败信息不输出完整环境。
 
 ### Task 5: `proc` 的通用限额与 Unix 进程树终止
 
