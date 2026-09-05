@@ -97,7 +97,7 @@ func TestPlanIncludesAllowedNameAbsentFromInventory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
-	want := "{\n  \"skillOverrides\": {\n    \"external\": \"on\"\n  }\n}\n"
+	want := "{\n  \"skillOverrides\": {\n    \"external\": \"on\",\n    \"projected\": \"on\"\n  }\n}\n"
 	if got := string(plan.Files[0].Data); got != want {
 		t.Fatalf("settings data =\n%s\nwant\n%s", got, want)
 	}

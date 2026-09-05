@@ -1,13 +1,26 @@
 package skill
 
-import "slices"
+import (
+	"errors"
+	"fmt"
+	"slices"
+)
 
 type ResolutionState string
 type ResolutionReason string
 
 const (
-	ReasonSpecialFile   ResolutionReason = "special-file"
-	ReasonLimitExceeded ResolutionReason = "limit-exceeded"
+	ReasonSpecialFile           ResolutionReason = "special-file"
+	ReasonLimitExceeded         ResolutionReason = "limit-exceeded"
+	ReasonProjectionUnsupported ResolutionReason = "projection-unsupported"
+	ReasonPluginDisabled        ResolutionReason = "plugin-disabled"
+	ReasonPluginOnly            ResolutionReason = "plugin-only"
+	ReasonCommandOnly           ResolutionReason = "command-only"
+	ReasonOutsideRoot           ResolutionReason = "outside-root"
+	ReasonTargetConflict        ResolutionReason = "target-conflict"
+	ReasonSymlinkLoop           ResolutionReason = "symlink-loop"
+	ReasonPluginManifest        ResolutionReason = "plugin-manifest"
+	ReasonInvalidPath           ResolutionReason = "invalid-path"
 )
 
 const (
@@ -28,6 +41,109 @@ type Resolution struct {
 type Resolved struct {
 	Agent   Agent
 	Entries []Resolution
+}
+
+type ResolveOptions struct {
+	Projection     bool
+	AllowedPlugins []string
+}
+
+type ProjectionCheck func(Location) (ResolutionReason, error)
+
+func Resolve(target Agent, selected []string, inventory []Skill, opts ResolveOptions, check ProjectionCheck) (Resolved, error) {
+	byID := make(map[string]Skill, len(inventory))
+	for _, candidate := range inventory {
+		byID[candidate.ID] = candidate
+	}
+	resolved := Resolved{Agent: target}
+	seen := make(map[string]bool, len(selected))
+	for _, id := range selected {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		candidate, ok := byID[id]
+		if !ok {
+			resolved.Entries = append(resolved.Entries, Resolution{ID: id, State: StateMissing})
+			continue
+		}
+		entry, err := resolveCandidate(target, candidate, opts, check)
+		if err != nil {
+			return Resolved{}, fmt.Errorf("resolve skill %q: %w", id, err)
+		}
+		resolved.Entries = append(resolved.Entries, entry)
+	}
+	return resolved, nil
+}
+
+func resolveCandidate(target Agent, candidate Skill, opts ResolveOptions, check ProjectionCheck) (Resolution, error) {
+	names := make(map[string]struct{})
+	for _, loc := range candidate.Locations {
+		if isPluginLocation(loc) && (loc.PluginAgent != target || loc.PluginID == "" || !slices.Contains(opts.AllowedPlugins, loc.PluginID)) {
+			continue
+		}
+		if name := loc.Names[target]; name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	if len(names) > 0 {
+		return Resolution{ID: candidate.ID, State: StateNative, Names: sortedNames(names)}, nil
+	}
+	entry := Resolution{ID: candidate.ID, State: StateUnavailable, Reason: ReasonProjectionUnsupported}
+	if !opts.Projection {
+		return entry, nil
+	}
+	var rejected, excluded ResolutionReason
+	for _, loc := range candidate.Locations {
+		if reason := projectionIneligible(target, loc); reason != "" {
+			if excluded == "" {
+				excluded = reason
+			}
+			continue
+		}
+		if check == nil {
+			return Resolution{}, errors.New("projection check is required")
+		}
+		reason, err := check(cloneLocation(loc))
+		if err != nil {
+			return Resolution{}, err
+		}
+		if reason != "" {
+			if rejected == "" {
+				rejected = reason
+			}
+			continue
+		}
+		location := cloneLocation(loc)
+		name := skillDirectoryName(loc)
+		if (target == AgentCodex || target == AgentOpenCode) && loc.FrontmatterName != "" {
+			name = loc.FrontmatterName
+		}
+		return Resolution{ID: candidate.ID, State: StateProjected, Names: []string{name}, Location: &location}, nil
+	}
+	if rejected != "" {
+		entry.Reason = rejected
+	} else if excluded != "" {
+		entry.Reason = excluded
+	}
+	return entry, nil
+}
+
+func isPluginLocation(loc Location) bool {
+	return loc.Level == LevelPlugin || loc.PluginID != "" || loc.PluginAgent != ""
+}
+
+func projectionIneligible(target Agent, loc Location) ResolutionReason {
+	if isPluginLocation(loc) {
+		if loc.PluginAgent == target {
+			return ReasonPluginDisabled
+		}
+		return ReasonPluginOnly
+	}
+	if loc.Kind != KindSkill {
+		return ReasonCommandOnly
+	}
+	return ""
 }
 
 func ResolveNative(agent Agent, selected []string, inventory []Skill) Resolved {
@@ -78,7 +194,7 @@ func (r Resolved) Count(state ResolutionState) int {
 func (r Resolved) AllowedNames() []string {
 	names := make(map[string]struct{})
 	for _, entry := range r.Entries {
-		if entry.State != StateNative {
+		if entry.State != StateNative && entry.State != StateProjected {
 			continue
 		}
 		for _, name := range entry.Names {

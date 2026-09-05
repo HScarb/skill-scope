@@ -836,7 +836,7 @@ Task 10 大小写审查修复（2026-09-05）：四个 fake 文件系统用例�
 - Create: `internal/launch/projection.go`、`internal/launch/projection_test.go`。
 - Modify: `internal/agent/claude/settings_test.go`（AllowedNames 新语义的既有测试）。
 
-- [ ] **Step 1: 写选择矩阵**
+- [x] **Step 1: 写选择矩阵**
 
 | 条件 | 期望 |
 |---|---|
@@ -855,13 +855,13 @@ Task 10 大小写审查修复（2026-09-05）：四个 fake 文件系统用例�
 
 名字由目标加载方式决定：Claude 投影使用 `Base(Dir(DiscoveryPath))`，即使 ID 有 scope 或 frontmatter 名不同。不要改写冻结 Location.Names，projected 的目标名字放 `Resolution.Names`。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/skill ./internal/launch -run 'TestResolve|TestPrepareProjection' -v`
 
 Expected：当前 `ResolveNative` 在无目标名时返回 native，测试 FAIL。
 
-- [ ] **Step 3: 增加解析入口与 Inspector 桥接**
+- [x] **Step 3: 增加解析入口与 Inspector 桥接**
 
 ```go
 // skill 包仅知道策略与回调，不 import projection、agent 或 config。
@@ -883,19 +883,27 @@ launch 的 callback 先用 `(Source, DiscoveryPath)` 查询 Task 9 的 ScanRejec
 
 `AllowedNames` 同时收 `StateNative` 和 `StateProjected`，保持去重排序。Task 14 移除生产中的 `ResolveNative` 调用；本 Task 先保留原生产入口，避免在 Copier 接入前产生 projected 设置。新 Resolve 的测试必须证明无目标名字不会被标成 native。因 AllowedNames 改变而受影响的旧 Claude Plan 测试同步更新其允许名预期，完整字段与 add-dir 断言仍在 Task 13 增加。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 Run: `go test ./internal/skill ./internal/launch -v`
 
 Expected：PASS；Resolution.Location 深复制，用户修改原 inventory 不能改变解析结果；每个 projected ID 恰好关联一个 Manifest。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/skill internal/launch
 git add internal/agent/claude/settings_test.go
 git commit -m "feat: resolve native projected unavailable and missing skills"
 ```
+
+Task 11 实施证据：
+
+- 红灯：新增 API 壳复用旧 ResolveNative 后，选择矩阵明确失败于无 native 仍返回 native、plugin 未允许仍进入名字集合、Inspector 回调次数为 0；Claude Plan 旧实现缺少 projected 的 on 项。launch 桥接壳出现目标冲突未拒绝、Manifest 未保存、扫描拒绝和 Inspector 错误未传递等预期行为失败。目标名字追加测试先证实 Codex/OpenCode 前言名错误回退目录名，再最小修复。
+- 绿灯：Windows 三包全量、go test -short ./...、WSL 三包回归通过；局部 golangci-lint v2.13.2 报 0 issues；gofmt/goimports 与 git diff --check 通过。
+- 桥接使用私有 preparedProjection/Skills，按选择顺序保存 ID、目标目录 basename 和 Manifest；Name 与 Resolution.Names 分开，Manifest.Root 保留发现入口。真实 Inspector + host.OpenProjectionRoot 测试覆盖只读成功、打开失败、Close 失败和取消；结构拒绝与 error 同时返回时优先传播 error。
+- 所有结构候选被拒时保留首个实际检查拒绝原因；没有可投影候选时使用首个候选的领域原因。未知 Inspector 拒绝理由返回配置错误，避免静默接受。
+- 本任务保留 Service.Run 中 ResolveNative 生产入口；未实现 Copy、add-dir 或 session 写入，完整投影编排仍在 Task 14 接入。六个冻结核心类型未修改。
 
 ### Task 12: 逐文件复制到私有 staging
 
