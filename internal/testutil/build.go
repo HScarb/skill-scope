@@ -11,12 +11,18 @@ import (
 	"testing"
 )
 
-const fakeAgentPkg = "github.com/scarb/skope/internal/testutil/fakeagent"
+const (
+	fakeAgentPkg = "github.com/scarb/skope/internal/testutil/fakeagent"
+	skopePkg     = "github.com/scarb/skope/cmd/skope"
+)
 
 var (
-	buildOnce sync.Once
-	buildPath string
-	buildErr  error
+	fakeAgentBuildOnce sync.Once
+	fakeAgentBuildPath string
+	fakeAgentBuildErr  error
+	skopeBuildOnce     sync.Once
+	skopeBuildPath     string
+	skopeBuildErr      error
 )
 
 // BuildFakeAgent compiles internal/testutil/fakeagent into a temporary
@@ -26,31 +32,47 @@ var (
 func BuildFakeAgent(tb testing.TB) string {
 	tb.Helper()
 
-	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "skope-fakeagent-")
-		if err != nil {
-			buildErr = err
-			return
-		}
-		name := "fakeagent"
-		if runtime.GOOS == "windows" {
-			name += ".exe"
-		}
-		out := filepath.Join(dir, name)
-
-		cmd := exec.Command("go", "build", "-o", out, fakeAgentPkg)
-		cmd.Env = os.Environ()
-		if output, err := cmd.CombinedOutput(); err != nil {
-			buildErr = &buildError{output: string(output), err: err}
-			return
-		}
-		buildPath = out
+	fakeAgentBuildOnce.Do(func() {
+		fakeAgentBuildPath, fakeAgentBuildErr = buildPackage("fakeagent", fakeAgentPkg)
 	})
 
-	if buildErr != nil {
-		tb.Fatalf("build fakeagent: %v", buildErr)
+	if fakeAgentBuildErr != nil {
+		tb.Fatalf("build fakeagent: %v", fakeAgentBuildErr)
 	}
-	return buildPath
+	return fakeAgentBuildPath
+}
+
+// BuildSkope compiles cmd/skope into a temporary directory and returns the
+// executable path. The build runs at most once per test binary.
+func BuildSkope(tb testing.TB) string {
+	tb.Helper()
+
+	skopeBuildOnce.Do(func() {
+		skopeBuildPath, skopeBuildErr = buildPackage("skope", skopePkg)
+	})
+
+	if skopeBuildErr != nil {
+		tb.Fatalf("build skope: %v", skopeBuildErr)
+	}
+	return skopeBuildPath
+}
+
+func buildPackage(name, pkg string) (string, error) {
+	dir, err := os.MkdirTemp("", "skope-"+name+"-")
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	out := filepath.Join(dir, name)
+
+	cmd := exec.Command("go", "build", "-o", out, pkg)
+	cmd.Env = os.Environ()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", &buildError{output: string(output), err: err}
+	}
+	return out, nil
 }
 
 type buildError struct {

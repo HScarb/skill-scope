@@ -70,3 +70,19 @@ func TestBuildFakeAgentReturnsSamePathWithinOneTest(t *testing.T) {
 		t.Errorf("expected cached path, got %q then %q", first, second)
 	}
 }
+
+func TestBuildSkopeProducesRunnableBinary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a binary; skipped with -short")
+	}
+
+	bin := testutil.BuildSkope(t)
+	cmd := exec.Command(bin, "version")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run skope version: %v\n%s", err, output)
+	}
+	if got, want := string(output), "skope dev\n"; got != want {
+		t.Errorf("skope version output = %q, want %q", got, want)
+	}
+}
