@@ -4,11 +4,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/scarb/skope/internal/projection"
+	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
 )
+
+type projectionSink struct {
+	sess    *session.Session
+	manager SessionManager
+	prefix  string
+}
+
+func newProjectionSink(sess *session.Session, manager SessionManager, name string) (projection.Sink, error) {
+	if name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, `/\:`) || !filepath.IsLocal(name) {
+		return nil, fmt.Errorf("invalid projection directory name %q", name)
+	}
+	return &projectionSink{sess: sess, manager: manager, prefix: sess.AgentPath("addDir", ".claude", "skills", name)}, nil
+}
+
+func (s *projectionSink) target(relative string, directory bool) (string, error) {
+	if !fs.ValidPath(relative) || strings.ContainsAny(relative, `\:`) || (!directory && relative == ".") || !filepath.IsLocal(relative) {
+		return "", fmt.Errorf("invalid projection relative path %q", relative)
+	}
+	return filepath.Join(s.prefix, filepath.FromSlash(relative)), nil
+}
+
+func (s *projectionSink) Mkdir(relative string) error {
+	target, err := s.target(relative, true)
+	if err != nil {
+		return err
+	}
+	return s.manager.WriteDirectories(s.sess, []string{target})
+}
+
+func (s *projectionSink) WriteFile(relative string, data []byte) error {
+	target, err := s.target(relative, false)
+	if err != nil {
+		return err
+	}
+	return s.manager.WriteNew(s.sess, []session.File{{Path: target, Data: data, Mode: 0o600}})
+}
 
 type ProjectionInspector interface {
 	Inspect(context.Context, string) (projection.Manifest, *projection.Rejection, error)

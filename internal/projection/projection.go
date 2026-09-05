@@ -1,4 +1,4 @@
-// Package projection inspects self-contained skill trees without writing them.
+// Package projection inspects and copies self-contained skill trees.
 package projection
 
 import "io/fs"

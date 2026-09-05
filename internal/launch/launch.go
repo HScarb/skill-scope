@@ -40,6 +40,8 @@ type SessionManager interface {
 	Preview(skill.Agent, string) (*session.Session, error)
 	Stage(skill.Agent, string) (*session.Session, error)
 	Write(*session.Session, []session.File) error
+	WriteNew(*session.Session, []session.File) error
+	WriteDirectories(*session.Session, []string) error
 	Publish(*session.Session) error
 	Abort(*session.Session) error
 }

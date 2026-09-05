@@ -914,7 +914,7 @@ Task 11 实施证据：
 - Modify: `internal/launch/projection.go`、`internal/launch/projection_test.go`。
 - Modify: `internal/launch/launch.go`、`internal/launch/launch_test.go`（SessionManager 新增独占写入方法及 fake 实现）。
 
-- [ ] **Step 1: 写复制与失败清理测试**
+- [x] **Step 1: 写复制与失败清理测试**
 
 - 完整复制 SKILL.md、references、scripts、二进制内容与空目录；内部 links 展开后目标没有链接。
 - 输出权限为文件 0600/目录 0700，脚本也遵守 spec，不偷偷保留 executable bit。
@@ -924,13 +924,13 @@ Task 11 实施证据：
 - 同一目标第二次写入必须返回可由 `errors.Is(err, fs.ErrExist)` 判定的错误，第一次内容不变。绕过规划器直接向 Sink 写 `Foo/SKILL.md`、`foo/SKILL.md`，在大小写不敏感卷上也必须拒绝覆盖；用 t.TempDir 内的 fixture 确认卷行为，不能只按 runtime.GOOS 决定期望。
 - 规划器拒绝大小写别名后不进入 Copy；如果实际文件系统还有未预见的路径别名，独占创建失败须触发整次 Abort，不能回退为截断写入，也不能把已部分复制的内容发布。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 Run: `go test ./internal/projection ./internal/session ./internal/launch -run 'TestCopy|TestSessionDirectories|TestProjectionWrite' -v`
 
 Expected：FAIL。
 
-- [ ] **Step 3: 实现不依赖 agent 的 Sink**
+- [x] **Step 3: 实现不依赖 agent 的 Sink**
 
 ```go
 type Sink interface {
@@ -967,19 +967,29 @@ target := sess.AgentPath("addDir", ".claude", "skills", basename)
 
 所有数据都先写 staging；Copy 不负责 Publish/Abort，这两个动作仍由 Service 统一编排。
 
-- [ ] **Step 4: 回归**
+- [x] **Step 4: 回归**
 
 Run: `go test ./internal/projection ./internal/session ./internal/launch -v`
 
-Expected：PASS；投影被拒绝时不产生半份目录；精确重名或文件系统别名都不能覆盖已有内容；复制期间发生真实错误时整次不发布。
+Expected：PASS；精确重名或文件系统别名都不能覆盖已有内容；Copy 不调用 Publish。失败可能留下私有 staging 中的部分文件，由 Session.Abort 删除；Service.Run 的自动 Abort 与错误合并接入在 Task 14 验证。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/projection internal/session internal/launch
 git commit -m "feat: copy checked skills into session staging"
 ```
 
+**Task 12 实施记录（2026-09-06）：**
+
+- 红绿顺序：先新增 `TestCopy*`，确认缺少 `projection.Copier` 编译红灯；实现 Copier 后绿灯。再新增 Session 目录/独占写矩阵，确认缺少 `WriteDirectories`、`WriteNewFiles`、`WriteNew` 红灯，实现后绿灯。最后新增 Sink 前缀/独占管理器测试，修正 fixture 构造调用后确认只因缺少 `newProjectionSink` 红灯，实现后绿灯。
+- 额外边界测试直接通过，记录为已有实现覆盖：写前与最后一次写入期间的源增删改、三阶段打开/读取/Stat/关闭/取消错误、第 2 个文件读写失败、actual Open 后 special/identity/size 校验、有限读取、根关闭与 Sink 错误合并、发现入口与内部链接改指向、目的目录 Junction/最终文件 symlink、卷实际大小写行为；不伪称这些测试曾单独变红。
+- Copier 在写前和写后复用 Inspector 的安全遍历，中间逐文件通过锚定 Root 重新解析、Open、Stat 确认 regular、有限读取并核对 size/hash，验证后才交 Sink。三个阶段重新打开原发现入口，所有句柄关闭。代价是额外遍历与读取；清单仍不含正文，一次只保留一个文件正文。不是文件系统快照，不保证识别最后检查后的变化或相同内容替换。
+- Session 的生成配置写入保留 O_TRUNC；新投影写入明确使用 O_EXCL，目标存在返回 fs.ErrExist 且原内容不变。目录与文件的 final→staging 校验共享私有 finalRoot；目录权限辅助函数去掉恒定 mode 参数，继续固定 0700。
+- launch 新增私有 `newProjectionSink(sess, manager, name)`，固定 skill 前缀，目录交 `WriteDirectories`，正文仅交 `WriteNew`。真实 Copier 遇到已有目标时失败、不发布，测试检查原内容并调用真实 Session.Abort 清理 staging。现有 Run 的 post-stage/Abort errors.Join 测试继续通过；本 Task 未把 Copy 接入 Run，投影失败自动 Abort 的端到端断言属于 Task 14。
+- Windows：`go test ./internal/projection ./internal/session ./internal/launch -timeout 120s`、`go test -short ./...` 均通过；真实 Junction 复制与拒绝已执行。文件 symlink 权限不足时仅跳过该能力，不能据此声称验证 Windows POSIX 权限；Windows 使用默认 DACL。
+- WSL Ubuntu：指定 Go 1.24 runtime、离线模块缓存和 `/var/tmp/skope-phase2-go-01a070a2` 临时目录，三包普通测试与 `go test -race ./internal/projection ./internal/session ./internal/launch -timeout 120s` 均通过；实际文件/目录 symlink、文件 0600、目录 0700、脚本移除 executable bit 均有断言。
+- 格式与静态检查：固定 v2.13.2 golangci-lint `fmt`（gofmt/goimports）及 `run ./internal/projection ./internal/session ./internal/launch` 通过，0 issues；`git diff --check` 通过。未修改真实用户配置、冻结 core 类型、host 或 Task 13/14 业务。
 ### Task 13: Claude 完整 settings 与 `--add-dir`
 
 **Files:**

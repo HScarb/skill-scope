@@ -5,14 +5,332 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/scarb/skope/internal/host"
 	"github.com/scarb/skope/internal/projection"
+	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
 )
+
+type projectionProcesses struct{}
+
+func (projectionProcesses) StartToken(int) (string, error) { return "test-process", nil }
+func projectionTestManager(t *testing.T) *session.Manager {
+	t.Helper()
+	m := session.NewManager(t.TempDir())
+	m.Processes = projectionProcesses{}
+	return m
+}
+
+func projectionDirectoryLink(t *testing.T, target, link string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+			t.Fatalf("junction: %v: %s", err, out)
+		}
+		return
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCopyProjectionStagesCompleteRealTreeAndExpandsLinks(t *testing.T) {
+	source := t.TempDir()
+	files := map[string][]byte{"SKILL.md": []byte("skill"), "refs/note.md": []byte("note"), "scripts/run.sh": []byte("echo ok"), "assets/data.bin": {0, 255, 1}}
+	for name, data := range files {
+		p := filepath.Join(source, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, data, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(source, "empty"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectionDirectoryLink(t, filepath.Join(source, "refs"), filepath.Join(source, "alias"))
+	if err := os.Symlink(filepath.Join(source, "SKILL.md"), filepath.Join(source, "alias-file.md")); err == nil {
+		files["alias-file.md"] = []byte("skill")
+	} else if runtime.GOOS != "windows" {
+		t.Fatal(err)
+	} else {
+		t.Logf("file symlink unavailable; directory junction remains covered: %v", err)
+	}
+	open := func(dir string) (projection.Root, error) { return host.OpenProjectionRoot(dir) }
+	m, reject, err := (projection.Inspector{OpenRoot: open}).Inspect(context.Background(), source)
+	if err != nil || reject != nil {
+		t.Fatalf("inspect=%v %v", reject, err)
+	}
+	manager := projectionTestManager(t)
+	sess, err := manager.Stage(skill.AgentClaude, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Abort() })
+	sink, err := newProjectionSink(sess, manager, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (projection.Copier{OpenRoot: open}).Copy(context.Background(), m, sink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sess.Root); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("final exists before publish: %v", err)
+	}
+	if err := sess.Publish(); err != nil {
+		t.Fatal(err)
+	}
+	root := sess.AgentPath("addDir", ".claude", "skills", "one")
+	files["alias/note.md"] = []byte("note")
+	for name, want := range files {
+		got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("file %s=%v error=%v", name, got, err)
+		}
+	}
+	if info, err := os.Stat(filepath.Join(root, "empty")); err != nil || !info.IsDir() {
+		t.Fatalf("empty directory=%v error=%v", info, err)
+	}
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			t.Fatalf("link escaped into output: %s", path)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if runtime.GOOS != "windows" {
+			want := fs.FileMode(0o600)
+			if entry.IsDir() {
+				want = 0o700
+			}
+			if info.Mode().Perm() != want {
+				t.Fatalf("mode %s=%o want=%o", path, info.Mode().Perm(), want)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCopyProjectionRejectsRetargetedDiscoveryAndInternalLinks(t *testing.T) {
+	for _, kind := range []string{"discovery", "internal"} {
+		t.Run(kind, func(t *testing.T) {
+			base := t.TempDir()
+			first, second := filepath.Join(base, "first"), filepath.Join(base, "second")
+			for _, dir := range []string{first, second} {
+				if err := os.Mkdir(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(dir), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			link := filepath.Join(base, "entry")
+			source := link
+			if kind == "internal" {
+				source = base
+				link = filepath.Join(base, "alias")
+			}
+			projectionDirectoryLink(t, first, link)
+			open := func(dir string) (projection.Root, error) { return host.OpenProjectionRoot(dir) }
+			m, reject, err := (projection.Inspector{OpenRoot: open}).Inspect(context.Background(), source)
+			if err != nil || reject != nil {
+				t.Fatalf("inspect=%v %v", reject, err)
+			}
+			if err := os.Remove(link); err != nil {
+				t.Fatal(err)
+			}
+			projectionDirectoryLink(t, second, link)
+			manager := projectionTestManager(t)
+			sess, err := manager.Stage(skill.AgentClaude, "copy")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = sess.Abort() })
+			sink, err := newProjectionSink(sess, manager, "one")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := (projection.Copier{OpenRoot: open}).Copy(context.Background(), m, sink); err == nil {
+				t.Fatal("retargeted source accepted")
+			}
+			if _, err := os.Stat(sess.Root); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("failed copy published: %v", err)
+			}
+			if err := sess.Abort(); err != nil {
+				t.Fatal(err)
+			}
+			entries, err := os.ReadDir(filepath.Join(manager.Home, "sessions"))
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("abort entries=%v error=%v", entries, err)
+			}
+		})
+	}
+}
+
+func TestProjectionWriteRejectsUnexpectedAliasWithoutPublishing(t *testing.T) {
+	manager := projectionTestManager(t)
+	sess, err := manager.Stage(skill.AgentClaude, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Abort() })
+	sink, err := newProjectionSink(sess, manager, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.WriteFile("Foo/SKILL.md", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	probe := filepath.Join(manager.Home, "CaseProbe")
+	if err := os.WriteFile(probe, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, probeErr := os.Stat(filepath.Join(manager.Home, "caseprobe"))
+	if probeErr != nil && !errors.Is(probeErr, fs.ErrNotExist) {
+		t.Fatal(probeErr)
+	}
+	err = sink.WriteFile("foo/SKILL.md", []byte("second"))
+	if probeErr == nil {
+		if !errors.Is(err, fs.ErrExist) {
+			t.Fatalf("alias error=%v", err)
+		}
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sess.Root); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("final exists: %v", err)
+	}
+	if err := sess.Abort(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCopyProjectionFailsOnExistingDestinationWithoutPublishing(t *testing.T) {
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("checked source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	open := func(dir string) (projection.Root, error) { return host.OpenProjectionRoot(dir) }
+	m, reject, err := (projection.Inspector{OpenRoot: open}).Inspect(context.Background(), source)
+	if err != nil || reject != nil {
+		t.Fatalf("inspect=%v %v", reject, err)
+	}
+	manager := projectionTestManager(t)
+	sess, err := manager.Stage(skill.AgentClaude, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Abort() })
+	sink, err := newProjectionSink(sess, manager, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.WriteFile("SKILL.md", []byte("keep first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := (projection.Copier{OpenRoot: open}).Copy(context.Background(), m, sink); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("copy duplicate=%v", err)
+	}
+	if _, err := os.Stat(sess.Root); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("copy published: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(manager.Home, "sessions"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("staging entries=%v error=%v", entries, err)
+	}
+	data, err := os.ReadFile(filepath.Join(manager.Home, "sessions", entries[0].Name(), "claude", "addDir", ".claude", "skills", "one", "SKILL.md"))
+	if err != nil || string(data) != "keep first" {
+		t.Fatalf("existing destination=%q error=%v", data, err)
+	}
+	if err := sess.Abort(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = os.ReadDir(filepath.Join(manager.Home, "sessions"))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("after Abort entries=%v error=%v", entries, err)
+	}
+}
+
+func TestProjectionWriteUsesExclusiveManagerAndFixedSkillPrefix(t *testing.T) {
+	f := newFixture()
+	sess := f.sessions.session
+	sink, err := newProjectionSink(sess, f.sessions, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.Mkdir("."); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.Mkdir("empty/nested"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.WriteFile("refs/note.md", []byte("note")); err != nil {
+		t.Fatal(err)
+	}
+	prefix := sess.AgentPath("addDir", ".claude", "skills", "one")
+	if !reflect.DeepEqual(f.sessions.directories, []string{prefix, filepath.Join(prefix, "empty", "nested")}) {
+		t.Fatalf("directories=%v", f.sessions.directories)
+	}
+	want := []session.File{{Path: filepath.Join(prefix, "refs", "note.md"), Data: []byte("note"), Mode: 0o600}}
+	if !reflect.DeepEqual(f.sessions.newFiles, want) || f.sessions.newWritten != sess || len(f.sessions.files) != 0 {
+		t.Fatalf("newFiles=%v files=%v", f.sessions.newFiles, f.sessions.files)
+	}
+	settings := []session.File{{Path: sess.AgentPath("settings.json"), Data: []byte("settings")}}
+	if err := f.sessions.Write(sess, settings); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.sessions.newFiles, want) || !reflect.DeepEqual(f.sessions.files, settings) {
+		t.Fatal("settings and projection writes mixed")
+	}
+	for _, relative := range []string{"../two/SKILL.md", "../one-similar/SKILL.md", "/absolute", `C:/absolute`, `..\escape`, "a/../escape", "", "a//b"} {
+		if err := sink.Mkdir(relative); err == nil {
+			t.Fatalf("accepted directory %q", relative)
+		}
+		if err := sink.WriteFile(relative, nil); err == nil {
+			t.Fatalf("accepted file %q", relative)
+		}
+	}
+	if err := sink.WriteFile(".", nil); err == nil {
+		t.Fatal("accepted file root")
+	}
+	if len(f.sessions.newFiles) != 1 || len(f.sessions.directories) != 2 {
+		t.Fatal("invalid paths reached manager")
+	}
+	for _, name := range []string{".", "..", "../other", "a/b", `a\b`, "C:", ""} {
+		if _, err := newProjectionSink(sess, f.sessions, name); err == nil {
+			t.Fatalf("accepted skill name %q", name)
+		}
+	}
+}
+
+func TestProjectionWritePreservesManagerErrors(t *testing.T) {
+	f := newFixture()
+	boom := errors.New("projection write failed")
+	f.sessions.writeNewErr, f.sessions.directoryErr = boom, boom
+	sink, err := newProjectionSink(f.sessions.session, f.sessions, "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.Mkdir("."); !errors.Is(err, boom) {
+		t.Fatalf("mkdir error=%v", err)
+	}
+	if err := sink.WriteFile("SKILL.md", nil); !errors.Is(err, boom) {
+		t.Fatalf("write error=%v", err)
+	}
+}
 
 func TestPrepareProjectionRetainsOneManifestPerProjectedSelection(t *testing.T) {
 	t.Parallel()

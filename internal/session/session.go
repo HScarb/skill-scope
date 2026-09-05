@@ -131,6 +131,14 @@ func (m *Manager) Write(sess *Session, files []File) error {
 	return sess.WriteFiles(files)
 }
 
+func (m *Manager) WriteNew(sess *Session, files []File) error {
+	return sess.WriteNewFiles(files)
+}
+
+func (m *Manager) WriteDirectories(sess *Session, paths []string) error {
+	return sess.WriteDirectories(paths)
+}
+
 func (m *Manager) Publish(sess *Session) error {
 	return sess.Publish()
 }
@@ -140,6 +148,45 @@ func (m *Manager) Abort(sess *Session) error {
 }
 
 func (s *Session) WriteFiles(files []File) error {
+	return s.writeFiles(files, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+}
+
+func (s *Session) WriteNewFiles(files []File) error {
+	return s.writeFiles(files, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+}
+
+func (s *Session) stagedPath(path string) (string, error) {
+	rel, err := filepath.Rel(s.finalRoot, path)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path %q is outside session root %q", path, s.finalRoot)
+	}
+	return filepath.Join(s.stagingName, rel), nil
+}
+
+func (s *Session) WriteDirectories(paths []string) error {
+	if s.sessionsRoot == nil || s.stagingName == "" || s.published || s.closed {
+		return errors.New("session is not staged")
+	}
+	targets := make([]string, len(paths))
+	for i, path := range paths {
+		target, err := s.stagedPath(path)
+		if err != nil {
+			return err
+		}
+		targets[i] = target
+	}
+	for _, target := range targets {
+		if err := mkdirAllRoot(s.sessionsRoot, target, 0o700); err != nil {
+			return fmt.Errorf("create session directory: %w", err)
+		}
+		if err := chmodRootDir(s.sessionsRoot, target); err != nil {
+			return fmt.Errorf("set session directory permissions: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Session) writeFiles(files []File, flags int) error {
 	if s.sessionsRoot == nil || s.stagingName == "" || s.published || s.closed {
 		return errors.New("session is not staged")
 	}
@@ -149,21 +196,21 @@ func (s *Session) WriteFiles(files []File) error {
 	}
 	targets := make([]target, len(files))
 	for i, file := range files {
-		rel, err := filepath.Rel(s.finalRoot, file.Path)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-			return fmt.Errorf("file path %q is outside session root %q", file.Path, s.finalRoot)
+		path, err := s.stagedPath(file.Path)
+		if err != nil {
+			return err
 		}
-		targets[i] = target{path: filepath.Join(s.stagingName, rel), data: file.Data}
+		targets[i] = target{path: path, data: file.Data}
 	}
 	for _, target := range targets {
 		parent := filepath.Dir(target.path)
 		if err := mkdirAllRoot(s.sessionsRoot, parent, 0o700); err != nil {
 			return fmt.Errorf("create session file parent: %w", err)
 		}
-		if err := chmodRootDir(s.sessionsRoot, parent, 0o700); err != nil {
+		if err := chmodRootDir(s.sessionsRoot, parent); err != nil {
 			return fmt.Errorf("set session file parent permissions: %w", err)
 		}
-		if err := writeRootFile(s.sessionsRoot, target.path, target.data); err != nil {
+		if err := writeRootFileFlags(s.sessionsRoot, target.path, target.data, flags); err != nil {
 			return fmt.Errorf("write session file: %w", err)
 		}
 	}
@@ -287,7 +334,7 @@ func openSessionsRoot(home string, create bool) (*os.Root, error) {
 		return nil, errors.Join(errors.New("sessions root changed while opening"), root.Close())
 	}
 	if create {
-		if err := chmodRootDir(root, ".", 0o700); err != nil {
+		if err := chmodRootDir(root, "."); err != nil {
 			return nil, errors.Join(fmt.Errorf("set sessions root permissions: %w", err), root.Close())
 		}
 	}
@@ -306,14 +353,14 @@ func createStagingDir(root *os.Root) (string, error) {
 		} else if err != nil {
 			return "", fmt.Errorf("create staging session: %w", err)
 		}
-		if err := chmodRootDir(root, name, 0o700); err != nil {
+		if err := chmodRootDir(root, name); err != nil {
 			return name, fmt.Errorf("set staging permissions: %w", err)
 		}
 		return name, nil
 	}
 }
 
-func chmodRootDir(root *os.Root, name string, mode fs.FileMode) (retErr error) {
+func chmodRootDir(root *os.Root, name string) (retErr error) {
 	dir, err := root.Open(name)
 	if err != nil {
 		return err
@@ -323,11 +370,15 @@ func chmodRootDir(root *os.Root, name string, mode fs.FileMode) (retErr error) {
 			retErr = errors.Join(retErr, err)
 		}
 	}()
-	return dir.Chmod(mode)
+	return dir.Chmod(0o700)
 }
 
 func writeRootFile(root *os.Root, name string, data []byte) (retErr error) {
-	file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	return writeRootFileFlags(root, name, data, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+}
+
+func writeRootFileFlags(root *os.Root, name string, data []byte, flags int) (retErr error) {
+	file, err := root.OpenFile(name, flags, 0o600)
 	if err != nil {
 		return err
 	}

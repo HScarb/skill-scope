@@ -674,6 +674,11 @@ func (f *fakeResolver) LookPath(command string) (string, error) {
 }
 
 type fakeSessions struct {
+	directories  []string
+	newFiles     []session.File
+	newWritten   *session.Session
+	writeNewErr  error
+	directoryErr error
 	fixture      *fixture
 	session      *session.Session
 	reapWarnings []error
@@ -712,6 +717,19 @@ func (f *fakeSessions) Write(sess *session.Session, files []session.File) error 
 	f.written = sess
 	f.files = cloneSessionFiles(files)
 	return f.writeErr
+}
+
+func (f *fakeSessions) WriteNew(sess *session.Session, files []session.File) error {
+	f.fixture.record("write-new")
+	f.newWritten = sess
+	f.newFiles = append(f.newFiles, cloneSessionFiles(files)...)
+	return f.writeNewErr
+}
+
+func (f *fakeSessions) WriteDirectories(_ *session.Session, paths []string) error {
+	f.fixture.record("write-directories")
+	f.directories = append(f.directories, paths...)
+	return f.directoryErr
 }
 
 func (f *fakeSessions) Publish(sess *session.Session) error {

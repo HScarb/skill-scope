@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -19,6 +20,190 @@ import (
 )
 
 var testNow = time.Date(2026, time.September, 5, 6, 7, 8, 0, time.FixedZone("test", 8*60*60))
+
+func TestSessionProjectionWritesRejectLinkedParents(t *testing.T) {
+	m := testManager(t.TempDir(), []byte{1, 2})
+	sess, err := m.Stage(skill.AgentClaude, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Abort() })
+	outside := t.TempDir()
+	link := filepath.Join(onlyStagingDir(t, filepath.Join(m.Home, "sessions")), "linked")
+	if runtime.GOOS == "windows" {
+		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, outside).CombinedOutput(); err != nil {
+			t.Fatalf("junction=%s error=%v", out, err)
+		}
+	} else if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Remove(link); err != nil {
+			t.Error(err)
+		}
+	}()
+	for _, path := range []string{filepath.Join(sess.Root, "linked", "escape"), filepath.Join(sess.Root, "linked")} {
+		if err := sess.WriteDirectories([]string{path}); err == nil {
+			t.Fatalf("accepted linked directory %q", path)
+		}
+		if err := sess.WriteNewFiles([]session.File{{Path: path, Data: []byte("unsafe")}}); err == nil {
+			t.Fatalf("accepted linked file %q", path)
+		}
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("outside changed: %v error=%v", entries, err)
+	}
+}
+
+func TestSessionProjectionWritesRejectFinalSymlinkWithoutChangingTarget(t *testing.T) {
+	m := testManager(t.TempDir(), []byte{1, 2})
+	sess, err := m.Stage(skill.AgentClaude, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Abort() })
+	staging := onlyStagingDir(t, filepath.Join(m.Home, "sessions"))
+	target := filepath.Join(staging, "first")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(staging, "link")
+	if err := os.Symlink(target, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("file symlink privileges unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	err = sess.WriteNewFiles([]session.File{{Path: filepath.Join(sess.Root, "link"), Data: []byte("overwrite")}})
+	if !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("symlink error=%v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("target=%s error=%v", data, err)
+	}
+}
+
+func TestSessionDirectoriesAndNewFilesRemainPrivateUntilPublish(t *testing.T) {
+	m := testManager(t.TempDir(), []byte{1, 2})
+	sess, err := m.Stage(skill.AgentClaude, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Abort() })
+	root := sess.Root
+	sess.Root = filepath.Join(t.TempDir(), "untrusted")
+	dir := sess.AgentPath("addDir", ".claude", "skills", "one", "empty")
+	if err := m.WriteDirectories(sess, []string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	name := sess.AgentPath("addDir", ".claude", "skills", "one", "script.sh")
+	if err := m.WriteNew(sess, []session.File{{Path: name, Data: []byte("first"), Mode: 0o777}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.WriteNewFiles([]session.File{{Path: name, Data: []byte("second")}}); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("duplicate error=%v", err)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("final exists: %v", err)
+	}
+	if err := sess.Publish(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(name)
+	if err != nil || string(data) != "first" {
+		t.Fatalf("data=%s error=%v", data, err)
+	}
+	assertMode(t, name, 0o600)
+	for p := dir; p != root; p = filepath.Dir(p) {
+		assertMode(t, p, 0o700)
+	}
+}
+
+func TestSessionProjectionWritesRejectInvalidStateAndPaths(t *testing.T) {
+	for _, state := range []string{"preview", "published", "closed", "staged"} {
+		t.Run(state, func(t *testing.T) {
+			m := testManager(t.TempDir(), []byte{1, 2})
+			var sess *session.Session
+			var err error
+			if state == "preview" {
+				sess, err = m.Preview(skill.AgentClaude, "copy")
+			} else {
+				sess, err = m.Stage(skill.AgentClaude, "copy")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = sess.Abort() })
+			if state == "published" {
+				if err := sess.Publish(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state == "closed" {
+				if err := sess.Abort(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			paths := []string{sess.AgentPath("valid")}
+			if state == "staged" {
+				paths = []string{sess.Root, filepath.Dir(sess.Root), sess.Root + "-similar/escape", filepath.Join(sess.Root, "..", "escape"), "relative"}
+			}
+			for _, path := range paths {
+				if err := sess.WriteNewFiles([]session.File{{Path: path}}); err == nil {
+					t.Fatalf("accepted file %q", path)
+				}
+				if err := sess.WriteDirectories([]string{path}); err == nil {
+					t.Fatalf("accepted directory %q", path)
+				}
+			}
+		})
+	}
+}
+
+func TestSessionProjectionWritesRespectVolumeCaseAliases(t *testing.T) {
+	home := t.TempDir()
+	probe := filepath.Join(home, "CaseProbe")
+	if err := os.WriteFile(probe, []byte("probe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, probeErr := os.Stat(filepath.Join(home, "caseprobe"))
+	if probeErr != nil && !errors.Is(probeErr, fs.ErrNotExist) {
+		t.Fatal(probeErr)
+	}
+	m := testManager(home, []byte{1, 2})
+	sess, err := m.Stage(skill.AgentClaude, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Abort() })
+	first, second := sess.AgentPath("Foo", "SKILL.md"), sess.AgentPath("foo", "SKILL.md")
+	if err := sess.WriteNewFiles([]session.File{{Path: first, Data: []byte("first")}}); err != nil {
+		t.Fatal(err)
+	}
+	err = sess.WriteNewFiles([]session.File{{Path: second, Data: []byte("second")}})
+	if probeErr == nil {
+		if !errors.Is(err, fs.ErrExist) {
+			t.Fatalf("alias error=%v", err)
+		}
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Publish(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(first)
+	if err != nil || string(data) != "first" {
+		t.Fatalf("first=%s error=%v", data, err)
+	}
+	if probeErr != nil {
+		data, err = os.ReadFile(second)
+		if err != nil || string(data) != "second" {
+			t.Fatalf("second=%s error=%v", data, err)
+		}
+	}
+}
 
 type fakeProcesses struct {
 	tokens map[int]string
