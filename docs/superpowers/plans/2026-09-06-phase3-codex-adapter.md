@@ -678,7 +678,7 @@ Task 8 实施证据（2026-09-06）：定向测试先确认缺少 Plan，空桩�
 - Create: `internal/cli/codex_conflict_test.go`。
 - Test: `internal/launch/launch_test.go`、`internal/cli/args_test.go`。
 
-- [ ] **Step 1: 写带来源的参数矩阵**
+- [x] **Step 1: 写带来源的参数矩阵**
 
 逐个覆盖 config 与 command-line 来源：`-c value`、`-c=value`、`--config value`、`--config=value`，以及 `-cvalue`。保护 skills/plugins 的父表和后代：`skills={...}`、`skills.config=...`、`plugins={...}`、`plugins."p@m".enabled=...`；按实际 CLI 的键解析语义覆盖引号、空白和近似名字。
 
@@ -690,7 +690,7 @@ Task 8 实施证据（2026-09-06）：定向测试先确认缺少 Plan，空桩�
 
 按 Task 3 约定测试 cwd/profile/来源覆盖与内部独立 `--` 的拒绝；`none` 在 Service 中跳过 checker。所有错误插入 SECRET_SENTINEL 证明值和原始 parser 错误均不泄漏。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/cli -run 'TestCheckConflicts.*Codex|TestCodexConflict' -count=1
@@ -698,15 +698,15 @@ go test ./internal/cli -run 'TestCheckConflicts.*Codex|TestCodexConflict' -count
 
 Expected：当前 Codex 分支直接成功，受保护参数测试失败。
 
-- [ ] **Step 3: 实现 token 提取和受保护键识别**
+- [x] **Step 3: 实现 token 提取和受保护键识别**
 
 先拼接两组参数，同时为每个 token 保留来源；不能分别检查两组后丢掉跨边界的 flag/value 关系。返回冲突时 Source 取 flag token 的来源，跨边界时新增可选 ValueSource 保存值来源（只输出来源标签，不保存/输出值）；同来源及 Claude 原错误文案不变。维护真实 CLI 支持的取值形式；消费配置值后不再把该值当 flag 扫第二遍。
 
-对配置赋值按首个 = 提取 key、dot splitting 逐段 trim；不做 TOML quoted-key 解析，不解析/输出原 RHS。检查 skills/plugins/features 父表与 remote_plugin、profile/profiles、project_root_markers、marketplaces 受保护子树；不使用仅匹配 skills. 的字符串前缀。
+对配置赋值按首个 = 提取 key，整体 trim 后 dot splitting，内部各段不 trim；不做 TOML quoted-key 解析，不解析/输出原 RHS。检查 skills/plugins/features 父表与 remote_plugin、profile/profiles、project_root_markers、marketplaces 受保护子树；不使用仅匹配 skills. 的字符串前缀。
 
 `ConflictError` 增加 `Agent skill.Agent`，Error 使用目标名称，Flag 保留 `-c`/`--config` 或冲突 flag，不加入值。现有 Claude 输出保持原样。launch 仍只调用注入的函数；none、首次未知参数停止 skope 解析、原 argv 字节不变等已有行为保持。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 ```sh
 go test ./internal/cli -run 'TestCheckConflicts|TestCodexConflict|TestParseLaunchArgs' -count=1
@@ -715,12 +715,16 @@ go test ./internal/launch -count=1
 
 Expected：两种 agent 冲突矩阵通过；冲突在 factory/inventory/staging/handoff 前阻断；错误无敏感值。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/cli/conflict.go internal/cli/conflict_test.go internal/cli/codex_conflict_test.go internal/launch/launch_test.go internal/cli/args_test.go
 git commit -m "feat: reject conflicting Codex configuration and source arguments"
 ```
+
+**2026-09-06 Task 9 实施记录：** Codex checker 拼接 config/user tokens 并保留来源，覆盖 5 种 config 形式、cwd/profile、remote_plugin feature 开关和 agent argv 独立分隔符；整体 key trim 后直接 dot splitting，不 trim 内部分段、不解析引号或 RHS。ConflictError 增加 Agent/可选 ValueSource，Claude 旧文案保留；无效值与跨来源错误只输出静态说明、flag 和来源。真实 CLI 20 组 features 对照确认空白、引号和 --enable 顺序覆盖，10 组 runtime prompt-input 确认 cwd/profile 参数形式，复现脚本和断言见 verification/cli_forms.py 与 README。CLI 黑盒、Service 提前阻断/none、skope 首分隔符回归覆盖；Service 未新增 cli 依赖，未注册 Codex 或改 foreign 装配。
+
+验证：首先定向 Codex 测试因原分支返回 nil 而红灯；实现后定向 cli 测试、launch 全包、Windows 全仓 short 通过。跨来源无效值缺少 ValueSource 的补充回归先红后绿。Linux cli/launch race 通过；golangci-lint v2.13.2 fmt --diff 无输出、两个包 run 为 0 issues。等待独立 spec 与 quality 审查。
 
 ### Task 10: 按目标合并外来来源与 launch 编排
 

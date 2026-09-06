@@ -14,6 +14,16 @@ func TestParseLaunchArgs(t *testing.T) {
 		err  error
 	}{
 		{
+			name: "Codex separator is consumed once",
+			args: []string{"--", "-c", "model=x"},
+			want: parsedLaunchArgs{agentArgs: []string{"-c", "model=x"}},
+		},
+		{
+			name: "Codex agent separator remains after unknown flag",
+			args: []string{"-c", "model=x", "--", "prompt"},
+			want: parsedLaunchArgs{agentArgs: []string{"-c", "model=x", "--", "prompt"}},
+		},
+		{
 			name: "short set",
 			args: []string{"-s", "dev"},
 			want: parsedLaunchArgs{setValue: "dev", setPresent: true},

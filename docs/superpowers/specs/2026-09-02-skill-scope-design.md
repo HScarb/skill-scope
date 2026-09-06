@@ -266,7 +266,7 @@ skope version
 - Codex：拒绝 `skills`/`plugins` 父表及子树，`features` 父表及 `features.remote_plugin` 子树，cwd/profile 与来源扩展参数；具体语法如下。
 - OpenCode：无 CLI 冲突参数
 
-Codex 将配置 args 与用户 args 拼接后按 token 保留来源，支持 `-c value`、`-c=value`、`-cvalue`、`--config value`、`--config=value`；配置末尾 `-c` 可取用户首 token 为值，错误报告 flag 来源和（若不同）值来源但不显示值。按第一个 `=` 分 key/value，key 按 Codex 实际 dot splitting、逐段 trim 处理，不把 CLI key 当 TOML quoted key 解码；`plugins."id".enabled` 的引号是字面字符，父 plugins 仍受保护。无值/空值报静态参数错误。
+Codex 将配置 args 与用户 args 拼接后按 token 保留来源，支持 `-c value`、`-c=value`、`-cvalue`、`--config value`、`--config=value`；配置末尾 `-c` 可取用户首 token 为值，错误报告 flag 来源和（若不同）值来源但不显示值。按第一个 `=` 分 key/value，key 仅整体 trim 后按 Codex 实际 dot splitting 分段，段内空白保持原样，不把 CLI key 当 TOML quoted key 解码；`plugins."id".enabled` 的引号是字面字符，父 plugins 仍受保护。无值/空值报静态参数错误。
 
 拒绝 `-C`/`--cd`、`-p`/`--profile`（分离、等号及短旗附着形式），以及透传中独立 `--`；skope 自己消费的第一个分隔符不算。拒绝 `--enable`/`--disable` 的 remote_plugin 值（含等号形式），允许其他 feature/model 参数。`-c` 的 `profile`、`profiles`、`project_root_markers`、`marketplaces` 父键/子树同样拒绝。固定 0.153.1 schema 的 project_root_markers 可改变祖先配置搜索边界，配置只允许缺省或精确 [".git"]，其余 unsupported-source；marketplaces 是配置/缓存更新来源，不当作 installed 事实。CODEX_HOME 是环境入口，由 host 解析；不存在的 codex_home 等 CLI 配置键不列为实际来源能力。
 

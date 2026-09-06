@@ -140,3 +140,19 @@ private-namespace:/etc/codex/{config.toml,skills/admin/SKILL.md}
 支持边界：固定 tag [features/src/lib.rs:1368](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/features/src/lib.rs)、[manager.rs:647](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/core-plugins/src/manager.rs) 与 [loader.rs:230–309](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/core-plugins/src/loader.rs) 显示 remote_plugin默认true，Codex backend认证时可取远端配置替换本地enabled。此实验无认证，只证明feature能设false与本地开关有效，**没有验证认证远端缓存的关闭语义**。Task3落实活动隔离显式remote_plugin=false与本地来源限定，none透传；不能把本条本地通过当作所有Codex来源均可隔离。
 
 active参数边界交给Task3：拒绝改变cwd/profile/CODEX_HOME、plugins与skills父表/根、marketplace来源、远端feature的用户覆盖，或先纳入完整可验证清单；不要静默接受未知来源扩展。features父表与--enable/--disable远端feature的绕过形式亦须检查；其语法和冲突实现由后续任务验证。Windows Known Folder、远端目录/认证安装、额外agent-plugin manifest格式仍未覆盖。bundled=true保留用户单项deny；缺失允许plugin只写true并报告missing，不保证未来安装后覆盖现存name deny。
+
+
+## Task 9：CLI 参数形式与 key 空白（2026-09-06）
+
+固定 Linux 0.153.1，新增可复验脚本只使用独立 user/mount/network namespace，映射 root 后将 `/etc` 挂载为临时 tmpfs；HOME、USERPROFILE、CODEX_HOME、cwd 均指向新 fixture，无认证变量，无模型调用。脚本拒绝未映射的 user namespace。调用方式：
+
+```sh
+unshare --user --map-root-user --mount --net python3 internal/agent/codex/testdata/verification/cli_forms.py /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl
+```
+
+- 20 组 `features list` 全部断言退出码和 remote_plugin 的预期布尔值。`-c value`、`-c=value`、`-cvalue`、`--config value`、`--config=value` 均生效。
+- 仅整个 key 的首尾空白被去除。` features.remote_plugin = false` 生效；`features .remote_plugin=false`、`features. remote_plugin=false` 不生效。dot 分段内部空白不会被 trim，这纠正了 spec §6.2 和 Task 9 原来的逐段 trim 假设。
+- `"features".remote_plugin`、`features."remote_plugin"` 均未控制真实 remote_plugin；CLI 引号是字面字符，不解析 TOML quoted keys。checker 仍保守拒绝字面 skills/plugins 等父表及其子树。
+- `--enable/--disable remote_plugin` 与 `=remote_plugin` 均生效；`--enable remote_plugin` 无论位于 `-c features.remote_plugin=false` 前后都令最终值为 true，不能依靠最后追加 `-c` 修复。
+- 真实 `--help` 列出 `-C/--cd`、`-p/--profile`。额外 10 组 `debug prompt-input` 覆盖两种选项的短名分离、短名等号、短名附着、长名分离、长名等号，每组断言退出 0 且输出含 fixture prompt。这里验证参数形式可被运行时接受；profile 加载效果已有上面的独立运行时对照。`features list` 不支持 profile，不能以其拒绝为选项不支持的证据。
+- 最新完整结果与 source 参数的 stdout/stderr 在 `/var/tmp/skope-p3-cli-forms-c37f1tgm/`。提交脚本保留全部 case 与断言，临时目录不是唯一复验依据。不提交完整 prompt、缓存或系统 skill 正文；未扩大为 Windows Known Folder/交互模型验证。
