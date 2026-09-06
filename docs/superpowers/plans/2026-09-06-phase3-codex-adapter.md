@@ -330,7 +330,7 @@ git commit -m "docs: define verified Phase 3 Codex isolation contract"
 - Create: `internal/host/skill_roots.go`、`internal/host/skill_roots_unix.go`、`internal/host/skill_roots_windows.go`、`internal/host/skill_roots_test.go`。
 - Test: `internal/skill/scan_links_test.go`、`internal/skill/foreign_unix_test.go`。
 
-- [ ] **Step 1: 写目录与元数据测试**
+- [x] **Step 1: 写目录与元数据测试**
 
 用 `fstest.MapFS` 包装既有 FileSystem 接口，逐行验证：
 
@@ -348,7 +348,7 @@ git commit -m "docs: define verified Phase 3 Codex isolation contract"
 | 缺失根 / 已进入目录 EACCES / 断链 | 分别跳过 / 报错 / 报错 |
 | foreign 特殊或超限 SKILL.md | 不读无界正文；保留 ID 与 Rejection，Names 不伪造 |
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/skill -run 'TestScanCodex|TestScanForeignRoots' -count=1
@@ -356,7 +356,7 @@ go test ./internal/skill -run 'TestScanCodex|TestScanForeignRoots' -count=1
 
 Expected：因新增方法缺失或新增 root/metadata 断言失败。不要把 fixture 自身路径错误当成需求红灯。
 
-- [ ] **Step 3: 实现最小扫描 API**
+- [x] **Step 3: 实现最小扫描 API**
 
 ```go
 // internal/skill/codex_scope.go
@@ -379,7 +379,7 @@ func (s Scanner) ScanCodex(env host.Env, paths host.CodexPaths) (ScanResult, err
 
 增加 `internal/skill/codex_metadata.go`、`codex_metadata_test.go`，定义非冻结 `CodexManifest{Name, Skills string}` 与 `Scanner.ReadCodexManifest(pluginRoot string) (CodexManifest, error)`，安全读取 .codex-plugin/plugin.json，name 必须非空字符串，skills 缺省 skills/ 或相对字符串；缺文件保留 ENOENT 由普通扫描跳过，Catalog 将该缺失当坏 active cache。description 仅在读 SKILL 时临时校验。原生缺 frontmatter 或 description 缺失/空/非字符串 fail-closed；foreign 无 frontmatter/缺 description 保留可投影 Location、不给 Names[Codex]；非法 YAML/字段类型错误照旧失败。缺 name 回退 basename，有 namespace 则 `<manifest.name>:<name>`。更新旧 Codex 可见性测试，不给 Claude 投影强加 description；`internal/cli/integration_test.go:skillDocument` 的 name-only fixture 继续可用。测试覆盖 parent/child 双 SKILL、local namespace 非 plugin、循环有界与双别名均保留、native/foreign 的 description 差异。
 
-- [ ] **Step 4: 运行绿灯和现有扫描回归**
+- [x] **Step 4: 运行绿灯和现有扫描回归**
 
 ```sh
 go test ./internal/skill ./internal/host -count=1
@@ -388,12 +388,21 @@ go test -short ./...
 
 Expected：全部 PASS；Linux/macOS 跑 FIFO 和真实 symlink，Windows 跑已有 Junction 测试。字节限额、read/close 错误传播、源内容不变的 Phase 2 断言继续通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/skill internal/host/skill_roots.go internal/host/skill_roots_unix.go internal/host/skill_roots_windows.go internal/host/skill_roots_test.go
 git commit -m "feat: discover Codex roots and generalize bounded foreign scans"
 ```
+
+**Task 4 实施记录（2026-09-06，生产提交 `e445bec`）：**
+
+- 新增 CodexPaths、CodexRoots/ScanCodex、ClaudeRoots/ProjectDirectories、CodexRecursive、manifest 与 description 校验；原生和 foreign 共用遍历，foreign SKILL/command 保持有界读取与完整 Root 元数据。CLI 的外来根装配保持 Task 10 前的环境快照来源，未提前切换 Known Folder/admin。
+- TDD 初始红灯：`go test ./internal/skill -run 'TestScanCodex|TestScanForeignRoots' -count=1` 因缺 CodexPaths/ScanCodex/ScanMode/ReadCodexManifest 编译失败；host 路径测试因缺 resolver seam 编译失败。新增根自身 SKILL/manifest 测试先复现遗漏根、child 无前缀，再通过；dangling command root 测试先复现被跳过，再通过。
+- 补充真实 CLI 0.153.1 对照确认 skills 根自身 SKILL.md 和 child 均加载，根 manifest 为两者增加前缀。两组隔离 debug prompt 均 exit 0，未调用模型；父代理取证目录为 `/var/tmp/skope-p3-root-o3rek403/`，实现测试为 `TestScanCodexIncludesRootSkillAndRootManifestNamespace`。
+- description 缺失、空值、非字符串仅使 foreign 无 CodexNames，保留可供 Claude 投影的 Location；native 同情况静态错误。既有非法 YAML/name 非字符串仍报错，冻结 Location 未加字段。固定 x/sys v0.41.0 的 FOLDERID_Profile 已为指针，正确调用是 `windows.KnownFolderPath(windows.FOLDERID_Profile, 0)`。
+- Windows `go test ./internal/skill ./internal/host -count=1`、`go test -short ./...` PASS；golangci-lint v2.13.2 对两个包检查为 0 issues，并运行其 gofmt/goimports formatter。WSL 原生 Linux 两包 `go test -race ... -count=1` PASS，包含 FIFO、真实 symlink；Windows Junction 验证中间目录、双 discovery、循环有界与 scanner 重用。覆盖率抽查 skill 94.3%、Windows host 68.2%，不以该抽查代替最终跨平台门禁。
+- Linux 首轮回归指出旧“断链”fixture 实际只删除 SKILL.md、链接目标目录仍存在；已分别断言合法空分组跳过和删除目标目录后的真正断链报错，SKILL.md 自身 dangling symlink 仍 fail-closed。read/close 联合错误断言继续通过。Task 4 独立 spec/quality 审查由父代理随后执行，Phase 3 尚未完成。
 
 ### Task 5: 只读 Codex 配置与实际安装 catalog
 
