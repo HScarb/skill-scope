@@ -7,8 +7,55 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/scarb/skope/internal/host"
 	"github.com/scarb/skope/internal/skill"
 )
+
+func TestCodexManifestAcceptsLargeUnrelatedFields(t *testing.T) {
+	body := `{"name":"demo","skills":"custom","description":"` + strings.Repeat("x", 1<<20) + `"}`
+	for _, regularOpener := range []bool{false, true} {
+		f := &foreignFS{mapFileSystem: newMapFS(fstest.MapFS{"plugin/.codex-plugin/plugin.json": file(body)})}
+		scanner := skill.Scanner{FS: f.mapFileSystem}
+		if regularOpener {
+			scanner = skill.Scanner{FS: f, RegularFiles: f}
+		}
+		got, err := scanner.ReadCodexManifest("/plugin")
+		if err != nil || got.Name != "demo" || got.Skills != "custom" {
+			t.Fatalf("regular opener=%v: manifest=%+v error=%v", regularOpener, got, err)
+		}
+		if regularOpener && (f.reads != len(body) || f.closes != 1) {
+			t.Fatalf("read=%d close=%d", f.reads, f.closes)
+		}
+	}
+}
+
+func TestCodexManifestPreservesSafeReadsAndIOErrors(t *testing.T) {
+	readErr, closeErr := errors.New("read failure"), errors.New("close failure")
+	for _, tt := range []struct {
+		name                       string
+		mode                       fs.FileMode
+		openErr, readErr, closeErr error
+	}{
+		{name: "special file", mode: fs.ModeNamedPipe},
+		{name: "replaced before open", openErr: host.ErrNotRegular},
+		{name: "joined read and close", readErr: readErr, closeErr: closeErr},
+	} {
+		f := &foreignFS{mapFileSystem: newMapFS(fstest.MapFS{"plugin/.codex-plugin/plugin.json": {Data: []byte(`{"name":"demo"}`), Mode: tt.mode}}), openErr: tt.openErr, readErr: tt.readErr, closeErr: tt.closeErr}
+		_, err := (skill.Scanner{FS: f, RegularFiles: f}).ReadCodexManifest("/plugin")
+		if err == nil || !strings.Contains(err.Error(), "plugin.json") {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		if tt.mode != 0 && (f.opens != 0 || f.reads != 0) {
+			t.Fatal("opened a special file")
+		}
+		if tt.openErr != nil && !errors.Is(err, tt.openErr) {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		if tt.readErr != nil && (!errors.Is(err, readErr) || !errors.Is(err, closeErr) || f.closes != 1) {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+	}
+}
 
 func TestCodexManifestValidation(t *testing.T) {
 	for _, tt := range []struct {

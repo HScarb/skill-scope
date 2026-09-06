@@ -17,26 +17,9 @@ type CodexManifest struct {
 
 func (s Scanner) ReadCodexManifest(pluginRoot string) (CodexManifest, error) {
 	name := joinPath(pluginRoot, ".codex-plugin", "plugin.json")
-	// Check before opening, including test filesystems without a regular opener.
-	info, err := s.FS.Stat(name)
+	contents, err := s.readSkillFile(name)
 	if err != nil {
-		return CodexManifest{}, fmt.Errorf("stat %s: %w", name, err)
-	}
-	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-		return CodexManifest{}, fmt.Errorf("invalid manifest file %s", name)
-	}
-	var contents []byte
-	if s.RegularFiles != nil {
-		var reason ResolutionReason
-		contents, reason, err = s.readForeignFile(name, 1<<20)
-		if err == nil && reason != "" {
-			err = fmt.Errorf("invalid manifest file %s", name)
-		}
-	} else {
-		contents, err = s.readSkillFile(name)
-	}
-	if err != nil {
-		return CodexManifest{}, err
+		return CodexManifest{}, fmt.Errorf("read manifest %s: %w", name, err)
 	}
 	var raw struct {
 		Name   json.RawMessage `json:"name"`

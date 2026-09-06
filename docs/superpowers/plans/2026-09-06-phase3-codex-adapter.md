@@ -404,6 +404,8 @@ git commit -m "feat: discover Codex roots and generalize bounded foreign scans"
 - Windows `go test ./internal/skill ./internal/host -count=1`、`go test -short ./...` PASS；golangci-lint v2.13.2 对两个包检查为 0 issues，并运行其 gofmt/goimports formatter。WSL 原生 Linux 两包 `go test -race ... -count=1` PASS，包含 FIFO、真实 symlink；Windows Junction 验证中间目录、双 discovery、循环有界与 scanner 重用。覆盖率抽查 skill 94.3%、Windows host 68.2%，不以该抽查代替最终跨平台门禁。
 - Linux 首轮回归指出旧“断链”fixture 实际只删除 SKILL.md、链接目标目录仍存在；已分别断言合法空分组跳过和删除目标目录后的真正断链报错，SKILL.md 自身 dangling symlink 仍 fail-closed。read/close 联合错误断言继续通过。Task 4 独立 spec/quality 审查由父代理随后执行，Phase 3 尚未完成。
 
+- Task 4 规格补审修复：移除 ReadCodexManifest 未约定的 1 MiB 上限，复用既有普通文件检查与安全 OpenRegular 读取。大于 1 MiB 的合法 manifest（长无关 description）测试先以 invalid manifest file 红灯，修复后两种 opener 路径均通过；同时验证替换成特殊文件的错误、read/close 联合错误和 JSON 正文保密。Windows skill 包测试通过，Linux manifest 与真实 FIFO 定向测试通过，局部 lint 0 issues。
+
 ### Task 5: 只读 Codex 配置与实际安装 catalog
 
 **Files:**
