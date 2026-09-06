@@ -24,7 +24,13 @@ func helperRequest(t *testing.T, mode string, args ...string) proc.Request {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return proc.Request{Executable: exe, Args: append([]string{"-test.run=^TestProcHelperProcess$", "--", mode}, args...), Env: []string{"PROBE_VALUE=explicit"}}
+	env := []string{"PROBE_VALUE=explicit"}
+	if testing.CoverMode() != "" {
+		// The instrumented helper exits directly, so its coverage runtime needs
+		// an output directory to avoid adding a diagnostic to the probe's stderr.
+		env = append(env, "GOCOVERDIR="+t.TempDir())
+	}
+	return proc.Request{Executable: exe, Args: append([]string{"-test.run=^TestProcHelperProcess$", "--", mode}, args...), Env: env}
 }
 
 func TestRunnerDefaultsAndInvalidConfiguration(t *testing.T) {
