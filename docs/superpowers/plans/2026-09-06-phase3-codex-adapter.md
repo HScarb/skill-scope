@@ -523,7 +523,7 @@ git commit -m "feat: build Codex native inventory with plugin visibility"
 
 混合且无普通 foreign 的排除原因顺序固定为目标 plugin-disabled、其他 plugin-only、command-only，给出用户可操作的最直接原因。所有 `Projection=false` 用 panic trap 证明不调用 ProjectionCheck/Inspector/Copier。Claude `Projection=true` 的原选择优先级、拒绝原因、候选回退保持不变。
 
-别名 fixture 包括同 ID 同目标、不同 ID 同目标、同名不同目标；只有「不同 ID 共享同一 Codex canonical 目标」新增静态共享控制告警，不把已有 different-content/effective-name collision 文案当成路径开关结论。
+别名 fixture 覆盖普通同 ID 同目标、普通不同 ID 同目标、同名不同目标、普通/plugin 同 ID 同目标、不同 PluginID 下同 ID 同目标，以及一个允许一个禁止的组合。告警按控制来源区分：普通入口的键为 (ordinary, skill.ID)，plugin 入口的键为 (plugin, PluginID)。同一 canonical 路径包含多个控制来源键时，由 Inventory 生成静态共享控制告警；同一普通 ID 的重复别名或同一 PluginID 内多个 skill ID 共用路径不新增该告警。已有 different-content/effective-name collision 不替代此告警。
 
 - [ ] **Step 2: 运行红灯**
 
@@ -536,7 +536,7 @@ Expected：现有提前返回使 plugin/command 原因断言失败；别名告�
 
 - [ ] **Step 3: 最小修改原因分支**
 
-先保持 native 优先，再在 `!opts.Projection` 分支检查候选类别并返回固定原因；不进入投影检查。别名告警在 Codex inventory 中由 RealPath 分组、ID 去重后生成，控制身份由 Task 8 再复核。Warnings 说明共享路径开关，不声称改变 skope 的 ID。
+先保持 native 优先，再在 `!opts.Projection` 分支检查候选类别并返回固定原因；不进入投影检查。Codex Inventory 按 RealPath 分组，对组内 (ordinary, skill.ID) / (plugin, PluginID) 控制来源键去重；超过一个键则在既有 Inventory.Warnings 中生成一次静态告警，说明这些来源共享路径开关、任一允许时该路径允许。告警不依赖本次是否已发生 true/false 冲突，因此无需向 Inventory 传入完整 skill 选择，也不声称修改 ID。测试输出稳定、不同 PluginID 同 ID 不漏警、同一控制键不重复警；Task 8 再复核 canonical 目标。
 
 - [ ] **Step 4: 运行绿灯与 Claude 回归**
 
@@ -592,7 +592,7 @@ go test ./internal/agent/codex -run 'TestCodexPlan|TestCanonical' -count=1
 
 允许集合来自选中 native ID 的普通 Codex location；对 inventory 中每一个普通与 plugin Codex location 调用 canonicalizer，包括选中项；plugin path 的 allowed 直接来自 Options.Plugins，不依赖 Resolved skill 选择。将结果转换为本平台绝对路径；空路径、非绝对路径、canonicalize 失败、解析后与 inventory.RealPath 指向不同目标时 fail-closed，避免扫描后链接改向造成误禁用。保留实际大小写，按最终路径字符串稳定排序。
 
-每条 canonical 路径只记录一个 `allowed bool`，通过 OR 合并各发现入口；最终所有路径输出一次 true/false。普通/plugin 物理别名共同 OR，冲突允许优先并告警；不依赖重复规则或顺序覆盖。
+每条 canonical 路径只记录一个 `allowed bool`，通过 OR 合并各发现入口；最终所有路径输出一次 true/false。普通/plugin 及不同 PluginID 的物理别名共同 OR，冲突允许优先；共享控制告警由 Task 7 预先写入 Inventory.Warnings，并沿既有摘要链路输出。Plan 只做 OR 和 canonical 复核，不新增告警出口、不修改 inv/resolved、不扩展冻结 LaunchPlan；复核发现链接改向仍 fail-closed，不在 Plan 临时补警或继续运行。测试一个允许一个禁止时数组只有 true、既有告警可见且 Plan 不改变输入；不依赖重复规则或顺序覆盖。
 
 path 值和 plugins inline table 的键共用只输出 TOML basic quoted string 的小函数。不用 Go `strconv.Quote`，因为它可能输出 TOML 不接受的 `\xNN`、`\a`、`\v`；不用先序列化整份配置再从字符串中截取值。编码函数如下，测试用已固定版本 go-toml 进行语义往返：
 
@@ -876,7 +876,7 @@ Linux/macOS/具备 Go 与 cgo 的 WSL 另运行：
 go test -race ./internal/agent/codex ./internal/skill ./internal/launch ./internal/cli -count=1 -timeout 180s
 ```
 
-Expected：PASS；Windows 不运行依赖缺失 C 工具链的 race。平台 skip 仅针对确实无法构造的链接或最终 handoff，不跳过纯算法/解析矩阵。
+Expected：PASS；Windows 不运行依赖缺失 C 工具链的 race。平台 skip 包括 Task 10 公共 binary 来源 guard（Windows active 含 dry-run 在启动前 skip；Unix 固定系统来源存在时 skip，Lstat 其他错误失败），以及确实无法构造的链接或最终 handoff；none/help、注入应用测试和纯算法/解析矩阵继续执行。
 
 - [ ] **Step 5: 提交集成测试及必要修复**
 
