@@ -1,11 +1,175 @@
 package skill_test
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/scarb/skope/internal/skill"
 )
+
+func TestResolveClassifiesSelectionBeforeProjection(t *testing.T) {
+	t.Parallel()
+	native := skill.Location{Kind: skill.KindSkill, Names: map[skill.Agent]string{skill.AgentClaude: "zeta"}}
+	foreign := skill.Location{Kind: skill.KindSkill, DiscoveryPath: "/foreign/foo/SKILL.md"}
+	plugin := skill.Location{Kind: skill.KindSkill, Level: skill.LevelPlugin, PluginID: "p@m", PluginAgent: skill.AgentClaude, Names: map[skill.Agent]string{skill.AgentClaude: "p:foo"}}
+	foreignPlugin := plugin
+	foreignPlugin.PluginAgent = skill.AgentCodex
+	for _, tt := range []struct {
+		name      string
+		locations []skill.Location
+		opts      skill.ResolveOptions
+		state     skill.ResolutionState
+		names     []string
+		reason    skill.ResolutionReason
+	}{
+		{"native beats earlier foreign", []skill.Location{foreign, native}, skill.ResolveOptions{Projection: true}, skill.StateNative, []string{"zeta"}, ""},
+		{"native beats later foreign", []skill.Location{native, foreign}, skill.ResolveOptions{Projection: true}, skill.StateNative, []string{"zeta"}, ""},
+		{"allowed target plugin", []skill.Location{plugin}, skill.ResolveOptions{AllowedPlugins: []string{"p@m"}}, skill.StateNative, []string{"p:foo"}, ""},
+		{"disabled target plugin", []skill.Location{plugin}, skill.ResolveOptions{Projection: true}, skill.StateUnavailable, nil, skill.ReasonPluginDisabled},
+		{"ordinary native survives disabled plugin", []skill.Location{plugin, native}, skill.ResolveOptions{Projection: true}, skill.StateNative, []string{"zeta"}, ""},
+		{"native and allowed plugin names sorted and deduplicated", []skill.Location{foreign, native, plugin, native, plugin}, skill.ResolveOptions{Projection: true, AllowedPlugins: []string{"p@m"}}, skill.StateNative, []string{"p:foo", "zeta"}, ""},
+		{"foreign plugin not native even if allowed", []skill.Location{foreignPlugin}, skill.ResolveOptions{Projection: true, AllowedPlugins: []string{"p@m"}}, skill.StateUnavailable, nil, skill.ReasonPluginOnly},
+		{"command cannot project", []skill.Location{{Kind: skill.KindCommand}}, skill.ResolveOptions{Projection: true}, skill.StateUnavailable, nil, skill.ReasonCommandOnly},
+		{"no projection capability", []skill.Location{foreign}, skill.ResolveOptions{}, skill.StateUnavailable, nil, skill.ReasonProjectionUnsupported},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := skill.Resolve(skill.AgentClaude, []string{"foo", "missing", "foo"}, []skill.Skill{{ID: "foo", Locations: tt.locations}}, tt.opts, func(skill.Location) (skill.ResolutionReason, error) {
+				t.Fatal("native, missing and ineligible locations must not be inspected")
+				return "", nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := skill.Resolved{Agent: skill.AgentClaude, Entries: []skill.Resolution{{ID: "foo", State: tt.state, Names: tt.names, Reason: tt.reason}, {ID: "missing", State: skill.StateMissing}}}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("Resolve() = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestResolveUsesOrderedProjectionCandidates(t *testing.T) {
+	t.Parallel()
+	first := skill.Location{Kind: skill.KindSkill, DiscoveryPath: "/project/Foo/SKILL.md", Scope: "app", FrontmatterName: "different", Names: map[skill.Agent]string{skill.AgentCodex: "different"}}
+	second := first
+	second.DiscoveryPath = "/global/Foo/SKILL.md"
+	ioErr := errors.New("read failed")
+	for _, tt := range []struct {
+		name    string
+		reasons []skill.ResolutionReason
+		err     error
+		state   skill.ResolutionState
+		reason  skill.ResolutionReason
+		calls   int
+	}{
+		{"first success", []skill.ResolutionReason{""}, nil, skill.StateProjected, "", 1},
+		{"rejection then success", []skill.ResolutionReason{skill.ReasonOutsideRoot, ""}, nil, skill.StateProjected, "", 2},
+		{"all rejected keep first reason", []skill.ResolutionReason{skill.ReasonOutsideRoot, skill.ReasonSpecialFile}, nil, skill.StateUnavailable, skill.ReasonOutsideRoot, 2},
+		{"io error stops", nil, ioErr, "", "", 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			locations := []skill.Location{first, second}
+			got, err := skill.Resolve(skill.AgentClaude, []string{"app:Foo"}, []skill.Skill{{ID: "app:Foo", Locations: locations}}, skill.ResolveOptions{Projection: true}, func(loc skill.Location) (skill.ResolutionReason, error) {
+				if !reflect.DeepEqual(loc, locations[calls]) {
+					t.Fatalf("candidate order = %#v", loc)
+				}
+				calls++
+				if tt.err != nil {
+					return "", tt.err
+				}
+				return tt.reasons[calls-1], nil
+			})
+			if !errors.Is(err, tt.err) || calls != tt.calls {
+				t.Fatalf("err=%v calls=%d", err, calls)
+			}
+			if err != nil {
+				return
+			}
+			entry := got.Entries[0]
+			if entry.State != tt.state || entry.Reason != tt.reason {
+				t.Fatalf("entry = %#v", entry)
+			}
+			if tt.state == skill.StateProjected && (!reflect.DeepEqual(entry.Names, []string{"Foo"}) || !reflect.DeepEqual(entry.Location, &locations[calls-1])) {
+				t.Fatalf("projected = %#v", entry)
+			}
+		})
+	}
+}
+
+func TestResolveRequiresCheckOnlyForEligibleProjection(t *testing.T) {
+	t.Parallel()
+	_, err := skill.Resolve(skill.AgentClaude, []string{"foo"}, []skill.Skill{{ID: "foo", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/foo/SKILL.md"}}}}, skill.ResolveOptions{Projection: true}, nil)
+	if err == nil {
+		t.Fatal("missing projection check must return a configuration error")
+	}
+	if _, err := skill.Resolve(skill.AgentClaude, []string{"missing"}, nil, skill.ResolveOptions{Projection: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResolveCopiesProjectedLocationAndNames(t *testing.T) {
+	t.Parallel()
+	inv := []skill.Skill{{ID: "foo", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/foreign/foo/SKILL.md", Names: map[skill.Agent]string{skill.AgentCodex: "original"}}}}}
+	want := cloneSkillInventory(inv)
+	got, err := skill.Resolve(skill.AgentClaude, []string{"foo"}, inv, skill.ResolveOptions{Projection: true}, func(skill.Location) (skill.ResolutionReason, error) { return "", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(inv, want) {
+		t.Fatal("Resolve mutated input")
+	}
+	if len(got.Entries) != 1 || got.Entries[0].State != skill.StateProjected || got.Entries[0].Location == nil {
+		t.Fatalf("expected projected location, got %#v", got)
+	}
+	inv[0].Locations[0].Names[skill.AgentCodex] = "input changed"
+	if got.Entries[0].Location.Names[skill.AgentCodex] != "original" {
+		t.Fatal("location aliases input")
+	}
+	got.Entries[0].Location.Names[skill.AgentClaude] = "location changed"
+	if got.Entries[0].Names[0] != "foo" {
+		t.Fatal("effective name aliases location")
+	}
+	got.Entries[0].Names[0] = "result changed"
+	if _, ok := inv[0].Locations[0].Names[skill.AgentClaude]; ok {
+		t.Fatal("result aliases input")
+	}
+}
+
+func TestAllowedNamesIncludesNativeAndProjectedOnly(t *testing.T) {
+	t.Parallel()
+	got := (skill.Resolved{Entries: []skill.Resolution{
+		{State: skill.StateNative, Names: []string{"zeta", "alpha"}},
+		{State: skill.StateProjected, Names: []string{"beta", "alpha"}},
+		{State: skill.StateUnavailable, Names: []string{"unavailable"}},
+		{State: skill.StateMissing, Names: []string{"missing"}},
+	}}).AllowedNames()
+	if !reflect.DeepEqual(got, []string{"alpha", "beta", "zeta"}) {
+		t.Fatalf("AllowedNames() = %v", got)
+	}
+}
+
+func TestResolveUsesTargetProjectionNames(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		target            skill.Agent
+		frontmatter, want string
+	}{
+		{skill.AgentClaude, "declared", "directory"},
+		{skill.AgentCodex, "declared", "declared"},
+		{skill.AgentOpenCode, "declared", "declared"},
+		{skill.AgentOpenCode, "", "directory"},
+	} {
+		t.Run(string(tt.target)+"/"+tt.frontmatter, func(t *testing.T) {
+			inv := []skill.Skill{{ID: "scope:directory", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/skills/directory/SKILL.md", Scope: "scope", FrontmatterName: tt.frontmatter}}}}
+			got, err := skill.Resolve(tt.target, []string{"scope:directory"}, inv, skill.ResolveOptions{Projection: true}, func(skill.Location) (skill.ResolutionReason, error) { return "", nil })
+			if err != nil || !reflect.DeepEqual(got.Entries[0].Names, []string{tt.want}) {
+				t.Fatalf("resolved=%#v err=%v", got, err)
+			}
+		})
+	}
+}
 
 func TestResolveNativeReturnsNativeAndMissingInSelectionOrder(t *testing.T) {
 	t.Parallel()

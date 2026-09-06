@@ -1,1 +1,2 @@
-internal/agent/claude/testdata/settings.golden.json text eol=lf
+internal/agent/claude/testdata/*.golden.json text eol=lf
+internal/cli/testdata/*.golden.txt text eol=lf

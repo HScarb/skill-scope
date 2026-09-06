@@ -24,7 +24,7 @@ func TestBuildFakeAgentProducesRunnableBinary(t *testing.T) {
 
 	outFile := filepath.Join(t.TempDir(), "out.json")
 	cmd := exec.Command(bin, "--flag", "value")
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(fakeAgentEnv(t),
 		"FAKEAGENT_OUT="+outFile,
 		"FAKEAGENT_EXIT=3",
 	)
@@ -45,7 +45,7 @@ func TestBuildFakeAgentProducesRunnableBinary(t *testing.T) {
 		Cwd  string            `json:"cwd"`
 	}
 	if err := json.Unmarshal(raw, &rec); err != nil {
-		t.Fatalf("unmarshal record: %v\n%s", err, raw)
+		t.Fatalf("unmarshal record: %v", err)
 	}
 	if len(rec.Args) != 2 || rec.Args[0] != "--flag" || rec.Args[1] != "value" {
 		t.Errorf("args = %v, want [--flag value]", rec.Args)

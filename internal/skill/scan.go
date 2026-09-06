@@ -3,6 +3,7 @@ package skill
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"slices"
@@ -24,10 +25,16 @@ type ScanResult struct {
 	Skills      []Skill
 	Collisions  []Collision
 	ProjectRoot string
+	Rejections  []ScanRejection
+}
+
+type RegularFileOpener interface {
+	OpenRegular(name string) (fs.File, error)
 }
 
 type Scanner struct {
-	FS FileSystem
+	FS           FileSystem
+	RegularFiles RegularFileOpener
 }
 
 func (s Scanner) ScanClaude(env host.Env) (ScanResult, error) {
@@ -36,6 +43,13 @@ func (s Scanner) ScanClaude(env host.Env) (ScanResult, error) {
 		return ScanResult{}, err
 	}
 
+	result, err := s.ScanRoots(roots)
+	result.ProjectRoot = projectRoot
+	return result, err
+}
+
+func (s Scanner) ScanRoots(roots []Root) (ScanResult, error) {
+	var err error
 	var locations []Location
 	for _, root := range roots {
 		var found []Location
@@ -52,10 +66,10 @@ func (s Scanner) ScanClaude(env host.Env) (ScanResult, error) {
 	}
 
 	skills, collisions := Build(locations)
-	return ScanResult{Skills: skills, Collisions: collisions, ProjectRoot: projectRoot}, nil
+	return ScanResult{Skills: skills, Collisions: collisions}, nil
 }
 
-func (s Scanner) scanSkillRoot(root scanRoot) ([]Location, error) {
+func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
 	entries, err := s.FS.ReadDir(root.Path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -74,8 +88,16 @@ func (s Scanner) scanSkillRoot(root scanRoot) ([]Location, error) {
 			continue
 		}
 
+		if root.PluginID == "" && root.Source == SourceClaude {
+			manifest := joinPath(root.Path, entry.Name(), ".claude-plugin", "plugin.json")
+			if _, err := s.FS.Stat(manifest); err == nil {
+				continue
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return nil, fmt.Errorf("stat %s: %w", manifest, err)
+			}
+		}
 		discoveryPath := joinPath(root.Path, entry.Name(), "SKILL.md")
-		contents, err := s.FS.ReadFile(discoveryPath)
+		contents, err := s.readSkillFile(discoveryPath)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) && !isSymlink {
 				_, lstatErr := s.FS.Lstat(discoveryPath)
@@ -97,7 +119,6 @@ func (s Scanner) scanSkillRoot(root scanRoot) ([]Location, error) {
 			return nil, fmt.Errorf("parse frontmatter %s: %w", discoveryPath, err)
 		}
 
-		id := scopedName(root.Scope, entry.Name())
 		locations = append(locations, Location{
 			Kind:            root.Kind,
 			DiscoveryPath:   discoveryPath,
@@ -105,14 +126,38 @@ func (s Scanner) scanSkillRoot(root scanRoot) ([]Location, error) {
 			Level:           root.Level,
 			Source:          root.Source,
 			Scope:           root.Scope,
+			PluginID:        root.PluginID,
+			PluginAgent:     root.PluginAgent,
 			FrontmatterName: frontmatterName,
-			Names:           map[Agent]string{AgentClaude: id},
+			Names:           rootNames(root, entry.Name(), frontmatterName),
 		})
 	}
 	return locations, nil
 }
 
-func (s Scanner) scanCommandRoot(root scanRoot) ([]Location, error) {
+// Native skill files have no byte limit, but special files must never be read.
+// The optional regular opener also prevents a stat-to-open FIFO replacement
+// from blocking production scanners.
+func (s Scanner) readSkillFile(name string) (contents []byte, err error) {
+	info, err := s.FS.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, host.ErrNotRegular
+	}
+	if s.RegularFiles == nil {
+		return s.FS.ReadFile(name)
+	}
+	file, err := s.RegularFiles.OpenRegular(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	return io.ReadAll(file)
+}
+
+func (s Scanner) scanCommandRoot(root Root) ([]Location, error) {
 	var locations []Location
 	if err := s.walkCommands(root, root.Path, true, &locations); err != nil {
 		return nil, err
@@ -120,7 +165,7 @@ func (s Scanner) scanCommandRoot(root scanRoot) ([]Location, error) {
 	return locations, nil
 }
 
-func (s Scanner) walkCommands(root scanRoot, directory string, isRoot bool, locations *[]Location) error {
+func (s Scanner) walkCommands(root Root, directory string, isRoot bool, locations *[]Location) error {
 	entries, err := s.FS.ReadDir(directory)
 	if err != nil {
 		if isRoot && errors.Is(err, fs.ErrNotExist) {
@@ -169,7 +214,7 @@ func (s Scanner) walkCommands(root scanRoot, directory string, isRoot bool, loca
 			return fmt.Errorf("resolve command path %s from %s: %w", entryPath, root.Path, err)
 		}
 		commandName := strings.TrimSuffix(relative, path.Ext(relative))
-		id := scopedName(root.Scope, strings.ReplaceAll(commandName, "/", ":"))
+		name := strings.ReplaceAll(commandName, "/", ":")
 		*locations = append(*locations, Location{
 			Kind:          root.Kind,
 			DiscoveryPath: entryPath,
@@ -177,7 +222,9 @@ func (s Scanner) walkCommands(root scanRoot, directory string, isRoot bool, loca
 			Level:         root.Level,
 			Source:        root.Source,
 			Scope:         root.Scope,
-			Names:         map[Agent]string{AgentClaude: id},
+			PluginID:      root.PluginID,
+			PluginAgent:   root.PluginAgent,
+			Names:         rootNames(root, name, ""),
 		})
 	}
 	return nil
@@ -235,4 +282,24 @@ func scopedName(scope, name string) string {
 		return name
 	}
 	return scope + ":" + name
+}
+
+func rootNames(root Root, basename, frontmatterName string) map[Agent]string {
+	names := make(map[Agent]string, len(root.VisibleTo))
+	for _, agent := range root.VisibleTo {
+		switch agent {
+		case AgentClaude:
+			names[agent] = scopedName(root.NamePrefix, scopedName(root.Scope, basename))
+		case AgentCodex, AgentOpenCode:
+			if root.Kind == KindCommand {
+				continue
+			}
+			name := frontmatterName
+			if name == "" {
+				name = basename
+			}
+			names[agent] = name
+		}
+	}
+	return names
 }

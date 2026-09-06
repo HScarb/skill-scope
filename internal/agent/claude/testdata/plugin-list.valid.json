@@ -1,0 +1,82 @@
+[
+  {
+    "id": "allowed-plugin@skope-fixture",
+    "version": "1.0.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/fixture/claude/plugins/cache/skope-fixture/allowed-plugin/1.0.0",
+    "installedAt": "2026-09-05T12:39:23.722Z",
+    "lastUpdated": "2026-09-05T12:39:23.722Z"
+  },
+  {
+    "id": "allowed-plugin@skope-fixture",
+    "version": "1.0.0",
+    "scope": "project",
+    "enabled": true,
+    "installPath": "/fixture/claude/plugins/cache/skope-fixture/allowed-plugin/1.0.0",
+    "installedAt": "2026-09-05T12:39:36.301Z",
+    "lastUpdated": "2026-09-05T12:39:36.301Z",
+    "projectPath": "/fixture/repo"
+  },
+  {
+    "id": "allowed-plugin@skope-fixture",
+    "version": "1.0.0",
+    "scope": "local",
+    "enabled": true,
+    "installPath": "/fixture/claude/plugins/cache/skope-fixture/allowed-plugin/1.0.0",
+    "installedAt": "2026-09-05T12:39:37.354Z",
+    "lastUpdated": "2026-09-05T12:39:37.354Z",
+    "projectPath": "/fixture/repo"
+  },
+  {
+    "id": "blocked-plugin@skope-fixture",
+    "version": "1.0.0",
+    "scope": "user",
+    "enabled": false,
+    "installPath": "/fixture/claude/plugins/cache/skope-fixture/blocked-plugin/1.0.0",
+    "installedAt": "2026-09-05T12:39:24.714Z",
+    "lastUpdated": "2026-09-05T12:39:24.714Z"
+  },
+  {
+    "id": "cache-plugin@skope-git-fixture",
+    "version": "1.0.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/fixture/claude/plugins/cache/skope-git-fixture/cache-plugin/1.0.0",
+    "installedAt": "2026-09-05T12:44:41.14Z",
+    "lastUpdated": "2026-09-05T12:44:41.14Z"
+  },
+  {
+    "id": "uninstalled-plugin@skope-fixture",
+    "version": "1.0.0",
+    "scope": "project",
+    "enabled": true,
+    "installPath": "/fixture/claude/plugins/cache/skope-fixture/uninstalled-plugin/1.0.0",
+    "installedAt": "2026-09-05T12:42:02.673Z",
+    "lastUpdated": "2026-09-05T12:42:02.673Z",
+    "projectPath": "/fixture/repo"
+  },
+  {
+    "id": "uninstalled-plugin@skope-fixture",
+    "version": "1.0.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/fixture/claude/plugins/cache/skope-fixture/uninstalled-plugin/1.0.0",
+    "installedAt": "2026-09-05T12:42:15.545Z",
+    "lastUpdated": "2026-09-05T12:42:15.545Z"
+  },
+  {
+    "id": "personal-auto@skills-dir",
+    "version": "1.0.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "/fixture/claude/skills/personal-auto"
+  },
+  {
+    "id": "project-auto@skills-dir",
+    "version": "1.0.0",
+    "scope": "project",
+    "enabled": true,
+    "installPath": "/fixture/repo/.claude/skills/project-auto"
+  }
+]

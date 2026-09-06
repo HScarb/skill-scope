@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/scarb/skope/internal/testutil"
 )
@@ -95,9 +97,12 @@ func TestIntegrationNoneIgnoresCorruptSkillSetsWithoutCreatingSession(t *testing
 	fixture := newIntegrationFixture(t)
 	writeFile(t, filepath.Join(fixture.skopeHome, "skillsets.toml"), "version = [\n")
 
-	output, code := fixture.run(t, []string{"claude", "-s", "none", "--from-user", "value"}, nil)
+	output, code := fixture.run(t, []string{"claude", "-s", "none", "--from-user", "value"}, map[string]string{"FAKEAGENT_PLUGIN_JSON": "invalid JSON"})
 	if code != 0 {
 		t.Fatalf("none launch exit code = %d, want 0\n%s", code, output)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.root, "probe.jsonl")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("none ran probe: %v", err)
 	}
 	record := readFakeRecord(t, fixture.fakeOutput)
 	wantArgs := []string{"--from-config", "configured", "--from-user", "value"}
@@ -252,6 +257,7 @@ func newIntegrationFixture(t *testing.T) *integrationFixture {
 	}
 	for _, directory := range []string{
 		fixture.home,
+		filepath.Join(fixture.home, ".codex"),
 		fixture.skopeHome,
 		filepath.Join(fixture.claudeConfig, "skills", "allowed"),
 		filepath.Join(fixture.claudeConfig, "skills", "blocked"),
@@ -290,19 +296,29 @@ args = ["--from-config", "configured"]
 func (f *integrationFixture) run(t *testing.T, args []string, extraEnv map[string]string) (string, int) {
 	t.Helper()
 	overrides := map[string]string{
-		"HOME":              f.home,
-		"SKOPE_HOME":        f.skopeHome,
-		"CLAUDE_CONFIG_DIR": f.claudeConfig,
-		"FAKEAGENT_OUT":     f.fakeOutput,
-		"FAKEAGENT_EXIT":    "0",
+		"HOME":                  f.home,
+		"USERPROFILE":           f.home,
+		"SKOPE_HOME":            f.skopeHome,
+		"CLAUDE_CONFIG_DIR":     f.claudeConfig,
+		"CODEX_HOME":            filepath.Join(f.home, ".codex"),
+		"FAKEAGENT_OUT":         f.fakeOutput,
+		"FAKEAGENT_EXIT":        "0",
+		"FAKEAGENT_PLUGIN_JSON": "[]",
+		"FAKEAGENT_PLUGIN_EXIT": "0",
+		"FAKEAGENT_PROBE_LOG":   filepath.Join(f.root, "probe.jsonl"),
 	}
 	for key, value := range extraEnv {
 		overrides[key] = value
 	}
-	cmd := exec.Command(f.skope, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, f.skope, args...)
 	cmd.Dir = f.repo
 	cmd.Env = withEnv(os.Environ(), overrides)
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("skope exceeded integration deadline: %v\n%s", ctx.Err(), output)
+	}
 	if err == nil {
 		return string(output), 0
 	}
@@ -414,13 +430,22 @@ func assertSettings(t *testing.T, path string) {
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		t.Fatalf("decode settings: %v\n%s", err, raw)
 	}
-	if len(settings) != 1 {
-		t.Errorf("settings keys = %v, want only skillOverrides", reflect.ValueOf(settings).MapKeys())
+	if len(settings) != 3 {
+		t.Errorf("settings keys = %v, want skillOverrides, enabledPlugins, disableBundledSkills", reflect.ValueOf(settings).MapKeys())
 	}
-	for _, forbidden := range []string{"enabledPlugins", "disableBundledSkills"} {
-		if _, exists := settings[forbidden]; exists {
-			t.Errorf("settings unexpectedly contains %s", forbidden)
-		}
+	var plugins map[string]bool
+	if err := json.Unmarshal(settings["enabledPlugins"], &plugins); err != nil {
+		t.Fatalf("decode enabledPlugins: %v", err)
+	}
+	if want := map[string]bool{"sample@market": true}; !reflect.DeepEqual(plugins, want) {
+		t.Errorf("enabledPlugins = %#v, want %#v", plugins, want)
+	}
+	var disabled bool
+	if err := json.Unmarshal(settings["disableBundledSkills"], &disabled); err != nil {
+		t.Fatalf("decode disableBundledSkills: %v", err)
+	}
+	if !disabled {
+		t.Error("disableBundledSkills = false, want true")
 	}
 	var overrides map[string]string
 	if err := json.Unmarshal(settings["skillOverrides"], &overrides); err != nil {
@@ -450,4 +475,126 @@ func withEnv(base []string, overrides map[string]string) []string {
 		environ = append(environ, key+"="+overrides[key])
 	}
 	return environ
+}
+
+func TestIntegrationProbeUsesResolvedExecutableAndIndependentLog(t *testing.T) {
+	requireUnixIntegration(t)
+	f := newIntegrationFixture(t)
+	output, code := f.run(t, []string{"claude", "-s", "dev", "--model", "sonnet"}, nil)
+	if code != 0 {
+		t.Fatalf("code=%d output=%s", code, output)
+	}
+	probe := readFakeRecord(t, filepath.Join(f.root, "probe.jsonl"))
+	if !reflect.DeepEqual(probe.Args, []string{"plugin", "list", "--json"}) || probe.Env["CLAUDE_CONFIG_DIR"] != f.claudeConfig {
+		t.Fatalf("probe=%#v", probe)
+	}
+	assertSameFile(t, probe.Cwd, f.repo)
+	ordinary := readFakeRecord(t, f.fakeOutput)
+	if len(ordinary.Args) < 4 || !reflect.DeepEqual(ordinary.Args[:4], []string{"--from-config", "configured", "--model", "sonnet"}) {
+		t.Fatalf("ordinary args=%v", ordinary.Args)
+	}
+}
+func TestIntegrationProbeFailureAndConflictStopBeforeStage(t *testing.T) {
+	requireUnixIntegration(t)
+	for _, test := range []struct {
+		name  string
+		args  []string
+		env   map[string]string
+		probe bool
+	}{
+		{name: "invalid JSON", env: map[string]string{"FAKEAGENT_PLUGIN_JSON": "{"}, probe: true},
+		{name: "probe exit", env: map[string]string{"FAKEAGENT_PLUGIN_EXIT": "17"}, probe: true},
+		{name: "conflict", args: []string{"--settings=secret-sentinel"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newIntegrationFixture(t)
+			output, code := f.run(t, append([]string{"claude", "-s", "dev"}, test.args...), test.env)
+			if code != 1 || strings.Contains(output, "secret-sentinel") {
+				t.Fatalf("code=%d output=%s", code, output)
+			}
+			if len(sessionEntries(t, f.skopeHome)) != 0 {
+				t.Fatal("created session after failure")
+			}
+			if _, err := os.Stat(f.fakeOutput); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("normal handoff output exists: %v", err)
+			}
+			_, err := os.Stat(filepath.Join(f.root, "probe.jsonl"))
+			if test.probe && err != nil {
+				t.Fatal(err)
+			}
+			if !test.probe && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("probe ran on conflict: %v", err)
+			}
+		})
+	}
+}
+
+func TestIntegrationForeignProjectionCopiesTreeAndHandsOffFinalPaths(t *testing.T) {
+	requireUnixIntegration(t)
+	f := newIntegrationFixture(t)
+	source := filepath.Join(f.root, "foreign-source")
+	for _, name := range []string{"SKILL.md", "refs/note.md"} {
+		p := filepath.Join(source, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, p, "body "+name)
+	}
+	entry := filepath.Join(f.home, ".agents", "skills", "foreign")
+	if err := os.MkdirAll(filepath.Dir(entry), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(source, entry); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(f.skopeHome, "skillsets.toml"), "version=1\n[skillsets.dev]\nskills=['foreign','allowed']\n")
+	output, code := f.run(t, []string{"claude", "-s", "dev"}, nil)
+	if code != 0 {
+		t.Fatalf("code=%d output=%s", code, output)
+	}
+	record := readFakeRecord(t, f.fakeOutput)
+	index := -1
+	for i, arg := range record.Args {
+		if arg == "--add-dir" {
+			if index != -1 {
+				t.Fatal("duplicate add-dir")
+			}
+			index = i
+		}
+	}
+	if index < 0 || index+1 >= len(record.Args) {
+		t.Fatalf("args=%v", record.Args)
+	}
+	addDir := record.Args[index+1]
+	if !filepath.IsAbs(addDir) || strings.Contains(addDir, ".staging-") {
+		t.Fatalf("addDir=%s", addDir)
+	}
+	for _, name := range []string{"SKILL.md", "refs/note.md"} {
+		p := filepath.Join(addDir, ".claude", "skills", "foreign", filepath.FromSlash(name))
+		data, err := os.ReadFile(p)
+		if err != nil || string(data) != "body "+name {
+			t.Fatalf("copy=%q err=%v", data, err)
+		}
+		info, err := os.Lstat(p)
+		if err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("not regular: %v %v", info, err)
+		}
+	}
+	for i, arg := range record.Args {
+		if arg == "--settings" {
+			data, err := os.ReadFile(record.Args[i+1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var generated struct {
+				SkillOverrides map[string]string `json:"skillOverrides"`
+			}
+			if err := json.Unmarshal(data, &generated); err != nil {
+				t.Fatal(err)
+			}
+			if generated.SkillOverrides["foreign"] != "on" || generated.SkillOverrides["allowed"] != "on" {
+				t.Fatalf("settings=%s", data)
+			}
+		}
+	}
 }

@@ -532,6 +532,9 @@ func (m *mapFileSystem) Stat(name string) (fs.FileInfo, error) {
 	if mapped, ok := m.files[mapKey(name)]; ok && mapped.Mode&fs.ModeSymlink != 0 {
 		return fs.Stat(m.files, mapKey(symlinkTarget(name, string(mapped.Data))))
 	}
+	if mapped, ok := m.files[mapKey(name)]; ok {
+		return mapFileInfo{name: path.Base(name), size: int64(len(mapped.Data)), mode: mapped.Mode}, nil
+	}
 	return fs.Stat(m.files, mapKey(name))
 }
 
@@ -626,5 +629,70 @@ func mustSymlink(t *testing.T, target, link string) {
 			t.Skipf("create symlink without Windows privilege: %v", err)
 		}
 		t.Fatalf("Symlink(%q, %q): %v", target, link, err)
+	}
+}
+
+func TestScannerExplicitRootsCarryNamesAndPluginMetadata(t *testing.T) {
+	t.Parallel()
+	fsys := newMapFS(fstest.MapFS{"plugins/skills/review/SKILL.md": file("# review"), "shared/skills/check/SKILL.md": file("# check"), "commands/run.md": file("run")})
+	roots := []skill.Root{
+		{Path: "/plugins/skills", Kind: skill.KindSkill, Level: skill.LevelPlugin, Source: skill.SourceClaude, VisibleTo: []skill.Agent{skill.AgentClaude}, PluginID: "p@m", PluginAgent: skill.AgentClaude, NamePrefix: "namespace"},
+		{Path: "/shared/skills", Kind: skill.KindSkill, Level: skill.LevelGlobal, Source: skill.SourceAgents, Scope: "app", VisibleTo: []skill.Agent{skill.AgentClaude, skill.AgentCodex, skill.AgentOpenCode}},
+		{Path: "/commands", Kind: skill.KindCommand, Level: skill.LevelProject, Source: skill.SourceClaude, VisibleTo: []skill.Agent{skill.AgentClaude, skill.AgentCodex, skill.AgentOpenCode}},
+	}
+	got, err := (skill.Scanner{FS: fsys}).ScanRoots(roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Skills) != 3 {
+		t.Fatalf("skills=%#v", got.Skills)
+	}
+	byID := map[string]skill.Location{}
+	for _, s := range got.Skills {
+		byID[s.ID] = s.Locations[0]
+	}
+	plugin := byID["review"]
+	if plugin.PluginID != "p@m" || plugin.PluginAgent != skill.AgentClaude || plugin.Names[skill.AgentClaude] != "namespace:review" || plugin.Level != skill.LevelPlugin {
+		t.Fatalf("plugin=%#v", plugin)
+	}
+	shared := byID["app:check"]
+	if shared.Source != skill.SourceAgents || !reflect.DeepEqual(shared.Names, map[skill.Agent]string{skill.AgentClaude: "app:check", skill.AgentCodex: "check", skill.AgentOpenCode: "check"}) {
+		t.Fatalf("shared=%#v", shared)
+	}
+	if !reflect.DeepEqual(byID["run"].Names, map[skill.Agent]string{skill.AgentClaude: "run"}) {
+		t.Fatalf("command=%#v", byID["run"])
+	}
+}
+func TestScannerExplicitForeignRootKeepsManifestCandidate(t *testing.T) {
+	t.Parallel()
+	fsys := newMapFS(fstest.MapFS{"skills/review/.claude-plugin/plugin.json": file(`{"name":"p"}`), "skills/review/SKILL.md": file("# review")})
+	got, err := (skill.Scanner{FS: fsys}).ScanRoots([]skill.Root{{Path: "/skills", Kind: skill.KindSkill, Level: skill.LevelGlobal, Source: skill.SourceAgents, VisibleTo: []skill.Agent{skill.AgentCodex}}})
+	if err != nil || len(got.Skills) != 1 {
+		t.Fatalf("skills=%#v error=%v", got, err)
+	}
+}
+
+func TestScannerExplicitRootsUseEachAgentsEffectiveSkillName(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct{ name, contents, want string }{
+		{name: "frontmatter", contents: "---\nname: effective-name\n---\n# skill", want: "effective-name"},
+		{name: "missing frontmatter", contents: "# skill", want: "directory-name"},
+		{name: "missing name", contents: "---\ndescription: example\n---\n# skill", want: "directory-name"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fsys := newMapFS(fstest.MapFS{"skills/directory-name/SKILL.md": file(test.contents)})
+			got, err := (skill.Scanner{FS: fsys}).ScanRoots([]skill.Root{{Path: "/skills", Kind: skill.KindSkill, Level: skill.LevelProject, Source: skill.SourceAgents, Scope: "app", VisibleTo: []skill.Agent{skill.AgentClaude, skill.AgentCodex, skill.AgentOpenCode}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Skills) != 1 || got.Skills[0].ID != "app:directory-name" {
+				t.Fatalf("skills=%#v", got.Skills)
+			}
+			want := map[skill.Agent]string{skill.AgentClaude: "app:directory-name", skill.AgentCodex: test.want, skill.AgentOpenCode: test.want}
+			if !reflect.DeepEqual(got.Skills[0].Locations[0].Names, want) {
+				t.Fatalf("names=%#v, want %#v", got.Skills[0].Locations[0].Names, want)
+			}
+		})
 	}
 }

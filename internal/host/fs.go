@@ -14,7 +14,7 @@ func (OSFileSystem) ReadFile(name string) ([]byte, error) {
 }
 
 func (OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
-	return os.ReadDir(filepath.FromSlash(name))
+	return readDirectory(filepath.FromSlash(name))
 }
 
 func (OSFileSystem) Stat(name string) (fs.FileInfo, error) {
@@ -26,7 +26,7 @@ func (OSFileSystem) Lstat(name string) (fs.FileInfo, error) {
 }
 
 func (OSFileSystem) EvalSymlinks(name string) (string, error) {
-	realPath, err := filepath.EvalSymlinks(filepath.FromSlash(name))
+	realPath, err := evalLinks(filepath.FromSlash(name))
 	if err != nil {
 		return "", err
 	}

@@ -4,8 +4,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/agent/claude"
@@ -13,8 +15,11 @@ import (
 	"github.com/scarb/skope/internal/handoff"
 	"github.com/scarb/skope/internal/host"
 	"github.com/scarb/skope/internal/launch"
+	"github.com/scarb/skope/internal/proc"
+	"github.com/scarb/skope/internal/projection"
 	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
+	"github.com/scarb/skope/internal/termsafe"
 	"github.com/spf13/cobra"
 )
 
@@ -36,15 +41,78 @@ func Execute(args []string, stdout, stderr io.Writer, version string) int {
 // Execute runs this application with the given arguments and returns the
 // process exit code.
 func (a Application) Execute(args []string, stdout, stderr io.Writer, version string) int {
+	output := &errorTrackingWriter{writer: stdout}
 	root := newRootCmd(version, a.LoadSkillSets, a.RunLaunch)
 	root.SetArgs(args)
-	root.SetOut(stdout)
+	root.SetOut(output)
 	root.SetErr(stderr)
+	// Cobra's HelpFunc cannot return an error to Execute.
+	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
+		if err := renderHelp(cmd); output.err == nil {
+			output.err = err
+		}
+	})
 
-	if err := root.Execute(); err != nil {
+	err := checkCompletionArgs(root, args)
+	if err == nil {
+		err = root.Execute()
+	}
+	if err == nil {
+		err = output.err
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %s\n", termsafe.Escape(err.Error()))
 		return 1
 	}
 	return 0
+}
+
+// Cobra completion diagnostics bypass SetErr. Reject control-bearing requests
+// before that protocol runs, using the same command lookup as initCompleteCmd.
+func checkCompletionArgs(root *cobra.Command, args []string) error {
+	if args == nil {
+		args = os.Args[1:]
+	}
+	hasControls := false
+	for _, arg := range args {
+		if termsafe.Escape(arg) != arg {
+			hasControls = true
+			break
+		}
+	}
+	if !hasControls {
+		return nil
+	}
+	complete := &cobra.Command{
+		Use:     cobra.ShellCompRequestCmd + " [command-line]",
+		Aliases: []string{cobra.ShellCompNoDescRequestCmd},
+		Hidden:  true,
+		Args:    cobra.ArbitraryArgs,
+	}
+	root.AddCommand(complete)
+	target, _, err := root.Find(args)
+	root.RemoveCommand(complete)
+	if err == nil && target == complete {
+		return errors.New("shell completion arguments contain terminal control characters")
+	}
+	return nil
+}
+
+// Retain short writes and help callback errors for the exit status.
+type errorTrackingWriter struct {
+	writer io.Writer
+	err    error
+}
+
+func (w *errorTrackingWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if w.err == nil {
+		w.err = err
+	}
+	return n, err
 }
 
 func newRootCmd(version string, loadSkillSets listLoader, runLaunch launchRunner) *cobra.Command {
@@ -52,11 +120,30 @@ func newRootCmd(version string, loadSkillSets listLoader, runLaunch launchRunner
 		Use:           "skope",
 		Short:         "Launch coding agents with a session-scoped skill whitelist",
 		SilenceUsage:  true,
-		SilenceErrors: false,
+		SilenceErrors: true,
 	}
 	root.SetUsageTemplate(rootUsageTemplate)
 	root.AddCommand(newLaunchCmd(skill.AgentClaude, runLaunch), newListCmd(loadSkillSets), newVersionCmd(version))
+	root.InitDefaultHelpCmd()
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "help" {
+			// Preserve Cobra's help metadata and completion while avoiding CheckErr.
+			cmd.Run = nil
+			cmd.RunE = runHelp
+		}
+	}
 	return root
+}
+
+func runHelp(cmd *cobra.Command, args []string) error {
+	target, remaining, err := cmd.Root().Find(args)
+	if err != nil || target == nil || len(remaining) != 0 {
+		return fmt.Errorf("unknown help topic %q", args)
+	}
+	target.SetContext(cmd.Context())
+	target.InitDefaultHelpFlag()
+	target.InitDefaultVersionFlag()
+	return renderHelp(target)
 }
 
 const rootUsageTemplate = `Usage:{{if .Runnable}}
@@ -109,20 +196,23 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 	}
 
 	fsys := host.OSFileSystem{}
-	scanner := skill.Scanner{FS: fsys}
-	adapter := claude.Adapter{Scanner: scanner, FS: fsys}
-	registry, err := agent.NewRegistry(adapter)
-	if err != nil {
-		return fmt.Errorf("register agent adapters: %w", err)
-	}
+	scanner := skill.Scanner{FS: fsys, RegularFiles: fsys}
+	openRoot := func(dir string) (projection.Root, error) { return host.OpenProjectionRoot(dir) }
 	service := launch.Service{
 		Env:       env,
 		FS:        fsys,
 		SkopeHome: skopeHome,
-		Registry:  registry,
-		Resolver:  host.ExecutableResolver{},
-		Sessions:  session.NewManager(skopeHome),
-		Handoff:   handoff.Handoff{},
+		NewRegistry: func(executable string, selection config.Selection) (launch.AdapterRegistry, error) {
+			adapter := claude.New(scanner, fsys, proc.Runner{}, claude.Options{Executable: executable, Plugins: append([]string(nil), selection.Plugins["claude"]...), Bundled: selection.Bundled})
+			return agent.NewRegistry(adapter)
+		},
+		CheckConflicts: CheckConflicts,
+		Foreign:        scanner,
+		Inspector:      projection.Inspector{OpenRoot: openRoot},
+		Copier:         projection.Copier{OpenRoot: openRoot},
+		Resolver:       host.ExecutableResolver{},
+		Sessions:       session.NewManager(skopeHome),
+		Handoff:        handoff.Handoff{},
 	}
 	return service.Run(ctx, request, report)
 }

@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/cli"
@@ -289,8 +292,8 @@ func TestClaudeCommandReportsNoneWithoutInventorySummary(t *testing.T) {
 	}
 }
 
-func TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment(t *testing.T) {
-	root := filepath.Join("C:", "skope", "sessions", "preview")
+func TestClaudeCommandDryRunReportsArgvSessionFilesAndOnlyEnvironmentChanges(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skope", "sessions", "preview")
 	settingsPath := filepath.Join(root, "claude", "settings.json")
 	settings := []byte("{\n  \"skillOverrides\": {\n    \"review\": \"on\"\n  }\n}\n")
 	result := launch.Result{
@@ -300,7 +303,7 @@ func TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment(t *test
 		Resolved: skill.Resolved{Agent: skill.AgentClaude, Entries: []skill.Resolution{
 			{ID: "review", State: skill.StateNative},
 		}},
-		Plan: agent.LaunchPlan{Files: []agent.PlannedFile{{
+		Plan: agent.LaunchPlan{Env: map[string]string{"SKOPE_TEST_CHANGE": "changed"}, Files: []agent.PlannedFile{{
 			Path: settingsPath,
 			Data: settings,
 		}}},
@@ -324,6 +327,7 @@ func TestClaudeCommandDryRunReportsArgvAndSessionFilesWithoutEnvironment(t *test
 		"claude/settings.json",
 		`"skillOverrides"`,
 		`"review": "on"`,
+		"Environment changes:\n  SKOPE_TEST_CHANGE=changed",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Errorf("output does not contain %q:\n%s", fragment, output)
@@ -438,5 +442,85 @@ func TestExecuteUnknownCommandReturnsOne(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "no-such-command") {
 		t.Errorf("stderr should name the unknown command, got %q", stderr.String())
+	}
+}
+
+func TestApplicationPropagatesConflictError(t *testing.T) {
+	app := cli.Application{RunLaunch: func(context.Context, launch.Request, launch.Reporter) error {
+		return &cli.ConflictError{Flag: "--settings", Source: "command-line"}
+	}}
+	var stdout, stderr bytes.Buffer
+	if code := app.Execute([]string{"claude", "-s", "dev"}, &stdout, &stderr, "test"); code != 1 || !strings.Contains(stderr.String(), "--settings") || !strings.Contains(stderr.String(), "command-line") {
+		t.Fatalf("code=%d stderr=%s", code, &stderr)
+	}
+}
+
+func TestHelpUnknownTopicUsesSafeErrorExit(t *testing.T) {
+	for _, topic := range []string{"unknown\u202e", "unknown\x1b[31m"} {
+		var stdout, stderr bytes.Buffer
+		code := (cli.Application{}).Execute([]string{"help", topic}, &stdout, &stderr, "")
+		if code != 1 || stdout.Len() != 0 || strings.Count(stderr.String(), "Error:") != 1 {
+			t.Errorf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		assertNoTerminalControls(t, stdout.String()+stderr.String())
+	}
+}
+
+type controlledErrorWriter struct{}
+
+func (controlledErrorWriter) Write([]byte) (int, error) {
+	return 0, errors.New("writer\x1b[31m\n\u202e")
+}
+
+func TestHelpWriterErrorsUseOneSafeErrorExit(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"help", "claude"}, {"list", "--help"}, {"completion", "--help"}, {"completion", "bash"}, {"completion", "zsh"}, {"completion", "fish"}, {"completion", "powershell"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stderr bytes.Buffer
+			code := (cli.Application{}).Execute(args, controlledErrorWriter{}, &stderr, "")
+			if code != 1 || strings.Count(stderr.String(), "writer") != 1 || strings.Count(stderr.String(), "Error:") != 1 {
+				t.Errorf("code=%d stderr=%q", code, stderr.String())
+			}
+			assertNoTerminalControls(t, stderr.String())
+		})
+	}
+}
+
+type helpUsageErrorWriter struct{ wroteDescription bool }
+
+func (w *helpUsageErrorWriter) Write(p []byte) (int, error) {
+	if !w.wroteDescription {
+		w.wroteDescription = true
+		return len(p), nil
+	}
+	return controlledErrorWriter{}.Write(p)
+}
+
+func TestHelpUsageTemplateErrorIsCapturedOnce(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"help", "claude"}} {
+		var stderr bytes.Buffer
+		code := (cli.Application{}).Execute(args, &helpUsageErrorWriter{}, &stderr, "")
+		if code != 1 || strings.Count(stderr.String(), "writer") != 1 || strings.Count(stderr.String(), "Error:") != 1 {
+			t.Fatalf("code=%d stderr=%q", code, stderr.String())
+		}
+		assertNoTerminalControls(t, stderr.String())
+	}
+}
+
+func TestHelpUnknownTopicWriterFailureReturnsWithoutExitingProcess(t *testing.T) {
+	if os.Getenv("SKOPE_TEST_HELP_CHILD") == "1" {
+		var stderr bytes.Buffer
+		code := (cli.Application{}).Execute([]string{"help", "unknown\u202e"}, controlledErrorWriter{}, &stderr, "")
+		if code != 1 {
+			t.Fatalf("code=%d", code)
+		}
+		assertNoTerminalControls(t, stderr.String())
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHelpUnknownTopicWriterFailureReturnsWithoutExitingProcess$")
+	cmd.Env = append(os.Environ(), "SKOPE_TEST_HELP_CHILD=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Application.Execute exited helper process: %v\n%s", err, out)
 	}
 }

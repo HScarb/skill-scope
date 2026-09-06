@@ -8,6 +8,7 @@ import (
 
 	"github.com/scarb/skope/internal/config"
 	"github.com/scarb/skope/internal/host"
+	"github.com/scarb/skope/internal/termsafe"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +29,7 @@ func newListCmd(load listLoader) *cobra.Command {
 				return err
 			}
 			if !sets.Exists {
-				_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n暂无配置\n", path)
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n暂无配置\n", termsafe.Escape(path))
 				return err
 			}
 
@@ -42,8 +43,8 @@ func newListCmd(load listLoader) *cobra.Command {
 					bundled = "on"
 				}
 				if _, err := fmt.Fprintf(writer, "%s\t%s\t%d\t%d\t%d\t%s\n",
-					set.Name,
-					set.Description,
+					termsafe.Escape(set.Name),
+					termsafe.Escape(set.Description),
 					len(set.Skills),
 					len(set.Plugins["claude"]),
 					len(set.Plugins["codex"]),
