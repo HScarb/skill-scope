@@ -131,8 +131,9 @@ func TestProjectionRootInspectsRealInternalLinksAndDiscoveryEntry(t *testing.T) 
 	if m.Root != entry || len(m.Files) != 6 || m.Bytes != 30 {
 		t.Fatalf("manifest=%+v", m)
 	}
-	if !reflect.DeepEqual(before, snapshotProjection(t, dir)) {
-		t.Fatal("inspection modified source tree")
+	after := snapshotProjection(t, dir)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("inspection modified source tree:\nbefore=%#v\nafter=%#v", before, after)
 	}
 	other := filepath.Join(parent, "other")
 	writeProjectionFile(t, filepath.Join(other, "different"), "other")
