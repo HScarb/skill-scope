@@ -406,6 +406,9 @@ git commit -m "feat: discover Codex roots and generalize bounded foreign scans"
 
 - Task 4 规格补审修复：移除 ReadCodexManifest 未约定的 1 MiB 上限，复用既有普通文件检查与安全 OpenRegular 读取。大于 1 MiB 的合法 manifest（长无关 description）测试先以 invalid manifest file 红灯，修复后两种 opener 路径均通过；同时验证替换成特殊文件的错误、read/close 联合错误和 JSON 正文保密。Windows skill 包测试通过，Linux manifest 与真实 FIFO 定向测试通过，局部 lint 0 issues。
 
+- Task 4 质量补审修复：可选 manifest 仅在 Lstat 确认路径真正不存在时跳过，.codex-plugin 目录确认存在后再 Stat；已存在的 manifest 读取错误全部传播。native/foreign 的 dangling 文件/目录、open ENOENT、read/close 联合 IO+ENOENT 共 10 个场景先复现被吞后转绿。真实 Windows Junction 补测还先复现 Lstat irregular 模式漏判，改为目录存在后总是 Stat 后通过；Linux 真实文件/目录 symlink 同时覆盖。
+- 被拒绝的任意 command root 条目使用 visitor 的完整相对根 ID（含 Scope/NamePrefix），Names 保持空。新增 skill.Merge 复用原去重、深复制、排序和冲突构建，launch 纯库存合并保留 Skill.ID，不再展平后重新推断；/custom/a/run.md 与 b/run.md 的 scanner/merge 错误合并均先红后绿。Windows skill/launch 全包、Linux 两包 race 通过；局部 golangci-lint v2.13.2 为 0 issues，冻结类型和 CLI 来源装配未改。
+
 ### Task 5: 只读 Codex 配置与实际安装 catalog
 
 **Files:**

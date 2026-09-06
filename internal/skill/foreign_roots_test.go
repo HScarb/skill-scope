@@ -78,6 +78,24 @@ func TestScanForeignRootsRejectsDanglingCommandRoot(t *testing.T) {
 	}
 }
 
+func TestScanForeignRootsRejectedCommandsKeepCustomRootIdentity(t *testing.T) {
+	f := &foreignFS{mapFileSystem: newMapFS(fstest.MapFS{
+		"custom/a/run.md": file("too large"),
+		"custom/b/run.md": {Mode: fs.ModeNamedPipe},
+	})}
+	root := skill.Root{Path: "/custom", Kind: skill.KindCommand, Source: skill.SourceClaude, Scope: "app", NamePrefix: "plugin", PluginID: "p@m", PluginAgent: skill.AgentClaude}
+	got, err := (skill.Scanner{FS: f, RegularFiles: f}).ScanForeignRoots([]skill.Root{root}, 2)
+	if err != nil || len(got.Skills) != 2 || got.Skills[0].ID != "plugin:app:a:run" || got.Skills[1].ID != "plugin:app:b:run" || len(got.Rejections) != 2 {
+		t.Fatalf("result=%+v error=%v", got, err)
+	}
+	for _, candidate := range got.Skills {
+		loc := candidate.Locations[0]
+		if len(loc.Names) != 0 || loc.Scope != root.Scope || loc.PluginID != root.PluginID || loc.PluginAgent != root.PluginAgent {
+			t.Fatal(loc)
+		}
+	}
+}
+
 func TestScanForeignRootsPreservesMetadataAndBounds(t *testing.T) {
 	f := &foreignFS{mapFileSystem: newMapFS(fstest.MapFS{
 		"skills/group/valid/SKILL.md":     file("---\nname: declared\ndescription: valid\n---\n"),

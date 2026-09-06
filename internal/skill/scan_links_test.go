@@ -94,6 +94,39 @@ func TestScanCodexDirectoryAliasesAndCycle(t *testing.T) {
 	}
 }
 
+func TestScanCodexRejectsDanglingManifestLinks(t *testing.T) {
+	for _, directoryLink := range []bool{false, true} {
+		t.Run(map[bool]string{false: "file", true: "directory"}[directoryLink], func(t *testing.T) {
+			temp := t.TempDir()
+			root := filepath.Join(temp, "skills")
+			item := filepath.Join(root, "item")
+			mustMkdirAll(t, item)
+			mustWriteFile(t, filepath.Join(item, "SKILL.md"), "---\ndescription: valid\n---\n")
+			link := filepath.Join(item, ".codex-plugin")
+			if !directoryLink {
+				mustMkdirAll(t, link)
+				link = filepath.Join(link, "plugin.json")
+			}
+			target := filepath.Join(temp, "missing")
+			if directoryLink && runtime.GOOS == "windows" {
+				if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+					t.Fatalf("junction: %v %s", err, out)
+				}
+			} else {
+				mustSymlink(t, target, link)
+			}
+			scanner := skill.Scanner{FS: host.OSFileSystem{}, RegularFiles: host.OSFileSystem{}}
+			roots := []skill.Root{{Path: root, Kind: skill.KindSkill, ScanMode: skill.CodexRecursive}}
+			if _, err := scanner.ScanRoots(roots); err == nil {
+				t.Fatal("native accepted dangling manifest link")
+			}
+			if _, err := scanner.ScanForeignRoots(roots, 100); err == nil {
+				t.Fatal("foreign accepted dangling manifest link")
+			}
+		})
+	}
+}
+
 func TestScannersRecognizeDiscoveryDirectoryLinksAndSkipCommandLinks(t *testing.T) {
 	for _, broken := range []bool{false, true} {
 		t.Run(map[bool]string{false: "valid", true: "broken"}[broken], func(t *testing.T) {

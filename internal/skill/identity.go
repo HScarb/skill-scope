@@ -9,18 +9,28 @@ import (
 )
 
 func Build(locations []Location) ([]Skill, []Collision) {
-	grouped := make(map[string][]Location)
-	seen := make(map[string]struct{}, len(locations))
+	candidates := make([]Skill, 0, len(locations))
 	for _, location := range locations {
-		key := string(location.Source) + "\x00" + location.DiscoveryPath
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
+		candidates = append(candidates, Skill{ID: locationID(location), Locations: []Location{location}})
+	}
+	return Merge(candidates)
+}
 
-		location = cloneLocation(location)
-		id := locationID(location)
-		grouped[id] = append(grouped[id], location)
+// Merge preserves scanner-assigned IDs while combining locations and collisions.
+func Merge(candidates []Skill) ([]Skill, []Collision) {
+	grouped := make(map[string][]Location)
+	seen := make(map[string]struct{})
+	for _, candidate := range candidates {
+		for _, location := range candidate.Locations {
+			key := string(location.Source) + "\x00" + location.DiscoveryPath
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			location = cloneLocation(location)
+			grouped[candidate.ID] = append(grouped[candidate.ID], location)
+		}
 	}
 
 	ids := make([]string, 0, len(grouped))

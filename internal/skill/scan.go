@@ -112,11 +112,12 @@ func (s Scanner) visitSkillDirectory(root Root, directory string, isRoot bool, c
 			}
 		}
 		if root.PluginID == "" {
-			manifest, err := s.ReadCodexManifest(directory)
-			if err == nil {
-				root.NamePrefix = manifest.Name
-			} else if !errors.Is(err, fs.ErrNotExist) {
+			manifest, err := s.readOptionalCodexManifest(directory)
+			if err != nil {
 				return err
+			}
+			if manifest.Name != "" {
+				root.NamePrefix = manifest.Name
 			}
 		}
 		name := joinPath(directory, "SKILL.md")

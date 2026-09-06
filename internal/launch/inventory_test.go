@@ -40,3 +40,19 @@ func TestMergeForeignInventoryPreservesSourcesAndCopies(t *testing.T) {
 		t.Fatalf("inputs changed: native=%#v foreign=%#v", native, foreign)
 	}
 }
+
+func TestMergeForeignInventoryKeepsRejectedCommandIDs(t *testing.T) {
+	foreign := skill.ScanResult{Skills: []skill.Skill{
+		{ID: "a:run", Locations: []skill.Location{{Kind: skill.KindCommand, Source: skill.SourceClaude, DiscoveryPath: "/custom/a/run.md"}}},
+		{ID: "b:run", Locations: []skill.Location{{Kind: skill.KindCommand, Source: skill.SourceClaude, DiscoveryPath: "/custom/b/run.md"}}},
+	}}
+	got, _ := mergeForeignInventory(agent.Inventory{}, foreign)
+	if len(got.Skills) != 2 || got.Skills[0].ID != "a:run" || got.Skills[1].ID != "b:run" {
+		t.Fatalf("skills=%+v", got.Skills)
+	}
+	for _, candidate := range got.Skills {
+		if len(candidate.Locations[0].Names) != 0 {
+			t.Fatal(candidate)
+		}
+	}
+}

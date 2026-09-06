@@ -85,6 +85,54 @@ func TestCodexManifestValidation(t *testing.T) {
 	}
 }
 
+type manifestOnlyFailures struct{ files *foreignFS }
+
+func (f manifestOnlyFailures) OpenRegular(name string) (fs.File, error) {
+	if strings.HasSuffix(name, "/.codex-plugin/plugin.json") {
+		return f.files.OpenRegular(name)
+	}
+	return f.files.files.Open(mapKey(name))
+}
+
+func TestScanCodexManifestErrorsAreNotOptionalAbsence(t *testing.T) {
+	ioErr := errors.New("manifest IO failure")
+	for _, foreign := range []bool{false, true} {
+		for _, scenario := range []string{"dangling file", "dangling directory", "open missing", "read joined", "close joined"} {
+			t.Run(scenario+map[bool]string{false: "/native", true: "/foreign"}[foreign], func(t *testing.T) {
+				files := fstest.MapFS{"skills/item/SKILL.md": file("---\ndescription: valid\n---\n"), "skills/item/.codex-plugin/plugin.json": file(`{"name":"namespace"}`)}
+				f := &foreignFS{mapFileSystem: newMapFS(files)}
+				switch scenario {
+				case "dangling file":
+					files["skills/item/.codex-plugin/plugin.json"] = symlink("missing")
+				case "dangling directory":
+					delete(files, "skills/item/.codex-plugin/plugin.json")
+					files["skills/item/.codex-plugin"] = symlink("missing")
+				case "open missing":
+					f.openErr = fs.ErrNotExist
+				case "read joined":
+					f.readErr = errors.Join(ioErr, fs.ErrNotExist)
+				case "close joined":
+					f.closeErr = errors.Join(ioErr, fs.ErrNotExist)
+				}
+				scanner := skill.Scanner{FS: f, RegularFiles: manifestOnlyFailures{files: f}}
+				roots := []skill.Root{{Path: "/skills", Kind: skill.KindSkill, ScanMode: skill.CodexRecursive, VisibleTo: []skill.Agent{skill.AgentCodex}}}
+				var err error
+				if foreign {
+					_, err = scanner.ScanForeignRoots(roots, 100)
+				} else {
+					_, err = scanner.ScanRoots(roots)
+				}
+				if !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), ".codex-plugin") {
+					t.Fatalf("manifest error was ignored: %v", err)
+				}
+				if strings.Contains(scenario, "joined") && !errors.Is(err, ioErr) {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
 func TestScanCodexOrdinaryManifestOnlyNamespacesSubtree(t *testing.T) {
 	f := newMapFS(fstest.MapFS{"skills/bundle/.codex-plugin/plugin.json": file(`{"name":"demo"}`), "skills/bundle/SKILL.md": file("---\ndescription: valid\n---\n"), "skills/bundle/group/child/SKILL.md": file("---\nname: declared\ndescription: valid\n---\n")})
 	got, err := (skill.Scanner{FS: f}).ScanRoots([]skill.Root{{Path: "/skills", Kind: skill.KindSkill, Source: skill.SourceCodex, VisibleTo: []skill.Agent{skill.AgentCodex}, ScanMode: skill.CodexRecursive}})

@@ -3,6 +3,7 @@ package skill
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,25 @@ import (
 type CodexManifest struct {
 	Name   string
 	Skills string
+}
+
+func (s Scanner) readOptionalCodexManifest(directory string) (CodexManifest, error) {
+	manifestDirectory := joinPath(directory, ".codex-plugin")
+	for _, name := range []string{manifestDirectory, joinPath(manifestDirectory, "plugin.json")} {
+		_, err := s.FS.Lstat(name)
+		if onlyError(err, fs.ErrNotExist) {
+			return CodexManifest{}, nil
+		}
+		if err != nil {
+			return CodexManifest{}, fmt.Errorf("lstat %s: %w", name, err)
+		}
+		if name == manifestDirectory {
+			if _, err := s.FS.Stat(name); err != nil {
+				return CodexManifest{}, fmt.Errorf("stat %s: %w", name, err)
+			}
+		}
+	}
+	return s.ReadCodexManifest(directory)
 }
 
 func (s Scanner) ReadCodexManifest(pluginRoot string) (CodexManifest, error) {

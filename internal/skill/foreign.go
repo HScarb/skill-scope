@@ -28,7 +28,7 @@ func (s Scanner) ScanForeignRoots(roots []Root, maxBytes int64) (ScanResult, err
 		return ScanResult{}, errors.New("foreign scan requires a regular file opener")
 	}
 	var result ScanResult
-	var locations []Location
+	var candidates []Skill
 	for _, root := range roots {
 		err := s.visitRoot(root, func(root Root, name, basename string) error {
 			info, err := s.FS.Stat(name)
@@ -62,7 +62,11 @@ func (s Scanner) ScanForeignRoots(roots []Root, maxBytes int64) (ScanResult, err
 					}
 				}
 			}
-			locations = append(locations, location)
+			id := locationID(location)
+			if root.Kind == KindCommand {
+				id = scopedName(root.NamePrefix, scopedName(root.Scope, basename))
+			}
+			candidates = append(candidates, Skill{ID: id, Locations: []Location{location}})
 			if reason != "" {
 				result.Rejections = append(result.Rejections, ScanRejection{Source: root.Source, DiscoveryPath: name, Reason: reason})
 			}
@@ -72,7 +76,7 @@ func (s Scanner) ScanForeignRoots(roots []Root, maxBytes int64) (ScanResult, err
 			return ScanResult{}, err
 		}
 	}
-	result.Skills, result.Collisions = Build(locations)
+	result.Skills, result.Collisions = Merge(candidates)
 	return result, nil
 }
 
@@ -89,7 +93,7 @@ func foreignFileRejection(info fs.FileInfo, maxBytes int64) ResolutionReason {
 func (s Scanner) readForeignFile(name string, maxBytes int64) (contents []byte, reason ResolutionReason, err error) {
 	file, err := s.RegularFiles.OpenRegular(name)
 	if err != nil {
-		if onlyNotRegular(err) {
+		if onlyError(err, host.ErrNotRegular) {
 			return nil, ReasonSpecialFile, nil
 		}
 		return nil, "", fmt.Errorf("open %s: %w", name, err)
@@ -121,18 +125,18 @@ func (s Scanner) readForeignFile(name string, maxBytes int64) (contents []byte, 
 }
 
 // Preserve I/O failures if an opener joins them with a structural rejection.
-func onlyNotRegular(err error) bool {
-	if !errors.Is(err, host.ErrNotRegular) {
+func onlyError(err, target error) bool {
+	if !errors.Is(err, target) {
 		return false
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, cause := range joined.Unwrap() {
-			if !onlyNotRegular(cause) {
+			if !onlyError(cause, target) {
 				return false
 			}
 		}
 	} else if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return onlyNotRegular(wrapped.Unwrap())
+		return onlyError(wrapped.Unwrap(), target)
 	}
 	return true
 }
