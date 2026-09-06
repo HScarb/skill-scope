@@ -417,7 +417,7 @@ git commit -m "feat: discover Codex roots and generalize bounded foreign scans"
 - Create: `internal/agent/codex/catalog_test.go`、`internal/agent/codex/config_test.go`、`internal/agent/codex/plugins_test.go`。
 - Test: `internal/agent/codex/testdata/catalog/` 中 Task 2 已固定的 fixtures。
 
-- [ ] **Step 1: 写 catalog 解析矩阵**
+- [x] **Step 1: 写 catalog 解析矩阵**
 
 | fixture | 断言 |
 |---|---|
@@ -434,7 +434,7 @@ git commit -m "feat: discover Codex roots and generalize bounded foreign scans"
 | I/O 错误、context 取消 | errors.Is 可识别；不继续读取下一个来源 |
 | 调用方修改结果 | 下次 Read 和原 fixture 数据不受影响 |
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/agent/codex -run 'TestCatalog|TestReadCodexConfig|TestParseCodexPlugins' -count=1
@@ -442,7 +442,7 @@ go test ./internal/agent/codex -run 'TestCatalog|TestReadCodexConfig|TestParseCo
 
 Expected：新增生产 reader 尚不存在或集合/错误断言失败。
 
-- [ ] **Step 3: 实现 Catalog.Read**
+- [x] **Step 3: 实现 Catalog.Read**
 
 Catalog 复用 skill.FileSystem 与 skill.RegularFileOpener，由 `host.OSFileSystem` 满足；在 catalog.go 定义前文 CatalogSnapshot，本任务不依赖尚未创建的 adapter.go。Read 接受解析后的 host.CodexPaths。读取 SystemConfigPaths → CodexHome/config.toml → ProjectDirectories 返回的祖先链各 .codex/config.toml；收集 plugins 表所有 ID（值必须是表，enabled 若存在必须 bool），不因 untrusted 跳过潜在项目键、不复制 trust/MCP/model 合并。config.profile 存在即拒绝；system/User 读取后先检查 project_root_markers 为缺省或精确 [".git"]，再构建项目链，每级项目配置仍检查该字段，其他值或类型 unsupported-source。marketplaces 配置不参与 installed 判定；PluginConfig.mcp_servers 是合法无关 overlay。无关字段忽略；只保存静态字段，不输出配置值。再由 plugins 键逐个解析本地 cache，绝不读取/创造 installed_plugins.json。
 
@@ -460,7 +460,7 @@ Codex Cargo.lock 固定 semver 1.0.27；总序细节以 [impls.rs](https://githu
 
 语法错误包装为本包 `InventoryError{Path, Field, Cause}`。`Error()` 只格式化 path/静态字段与错误类别；`Unwrap()` 保留原始错误供 errors.Is/As 使用，不能 `%v` 原样输出可能带 TOML 值的 decoder 错误。插件文件读取先检查普通文件类型，防止 FIFO 阻塞；复用 host.OpenRegular，不新增后台进程。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 ```sh
 go test ./internal/agent/codex -count=1
@@ -469,12 +469,20 @@ go test -short ./...
 
 Expected：全部 PASS；未知字段不阻塞，无真实配置读写，无真实 agent/网络调用，输出不含 fixture 中的秘密 sentinel。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/agent/codex
 git commit -m "feat: read Codex plugin configuration and installed sources"
 ```
+
+Task 5 实施记录（2026-09-06）：新增只读 Catalog 与消费接口、静态 InventoryError、受管 TOML 形状校验、本地 active cache 与完整版本比较器；复用 Task 2 catalog fixtures，未新增依赖或修改冻结类型。旧合法 profiles 表按无关字段忽略，只拒绝单数 profile，未读取运行时 profile 文件。固定 store.rs 的版本目录过滤仅接收 ASCII 字母、数字、- _ . +，不跟随 version symlink；其他名称忽略，合法目录名的非 semver 版本才使用字符串比较。
+
+红灯证据：首轮 `go test ./internal/agent/codex -run 'TestCatalog|TestReadCodexConfig|TestParseCodexPlugins' -count=1` 因生产包缺失失败。后续独立回归先复现 OpenRegular 后取消仍 Read 一次、Git 祖先查询取消后仍调用 9 次 Stat、断链 skills 祖先被当作无 skills、缺失 skills 路径经逃逸 symlink 被接受、非法中文版本目录劫持 active，随后最小修复并转绿。
+
+绿灯证据：`go test ./internal/agent/codex -count=1`、`go test -short ./...` 通过；固定 golangci-lint v2.13.2 `fmt ./internal/agent/codex/...` 执行 gofmt/goimports，`run ./internal/agent/codex/...` 为 0 issues；WSL Ubuntu 离线 Go 工具链 `go test -race -cover ./internal/agent/codex -count=1` 通过，包覆盖率 87.1%，包含 FIFO 拒绝、断链/逃逸及 version symlink 回归。所有来源来自注入临时目录；没有读取真实用户配置、运行真实 Codex 或调用网络服务。ManifestReader 的单次调用无 context 参数，Catalog 在调用前后检查取消；文件操作不启动后台进程，已进入的同步 OS 调用不承诺强行中断。
+
+补充：插件 ID 按固定 [plugin_id.rs](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/plugin/src/plugin_id.rs#L45) 校验，name 仅 ASCII 字母、数字、- _ .，点不得首尾或连续；marketplace 仅 ASCII 字母、数字、- _。空格、Unicode、marketplace 点号等先红灯复现再拒绝，错误只显示静态 plugins.id 字段。
 
 ### Task 6: Codex adapter 与原生 inventory
 
