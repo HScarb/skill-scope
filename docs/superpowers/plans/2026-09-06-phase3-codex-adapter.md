@@ -122,13 +122,15 @@ Task 1–3 是事实与契约门禁；全部完成后才进入 adapter 实现。
 
 ### Task 1: 验证 Codex 路径禁用与跨层数组语义
 
+**2026-09-06 实测偏差（覆盖本计划后续旧的纯 denylist/数组替换假设）：** Codex CLI 0.153.1 的 User path/name 禁用不被 CLI 空数组清除；显式 canonical path=true 可恢复允许项。产品必须枚举普通路径全集写 true/false，spec §7.2 已修订。Linux skills/list、debug prompt-input、bundled 缓存、参数解析、运行时 profile 对照已完成；Windows Known Folder 忽略 HOME 重定向，原生 Windows/Junction 与真实交互模型调用仍未验。Task 3 须同步后续 Task 6–13 的旧片段，不能照抄仅为禁止项写 false 的方案。证据见 docs/verification.md 第 1、9 条及 testdata/verification/README.md。
+
 **Files:**
 
 - Modify: `docs/verification.md`（第 1、9 条）。
 - Create: `internal/agent/codex/testdata/verification/README.md`（仅版本、无秘密 fixture 构建步骤和观察）。
 - Modify when evidence differs: `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §3/§7.2。
 
-- [ ] **Step 1: 固定实验二进制与观察方式**
+- [x] **Step 1: 固定实验二进制与观察方式**
 
 记录真实 Codex 的绝对路径、`--version`、平台及安装方式。先运行该二进制的 `--help`、`exec --help`；只有实际帮助列出的命令和参数才能写入实验脚本。不以桌面 app 版本代替 CLI 版本，不使用 PATH 中身份不明的第二个 Codex。
 
@@ -156,7 +158,7 @@ EOF
 
 优先用真实 CLI 的 skill 选择器或经当版 schema 确认的只读 skill-list 协议观察加载路径与 enabled 状态。若只能靠模型调用观察，应使用已可用的认证环境、明确调用允许/禁止 skill、保留对照和实际工具事件；模型说「我看不到」或退出 0 都不足以单独证明配置生效。需要新认证时保留门禁待验，不读取或复印真实 auth.json。
 
-- [ ] **Step 2: 完成路径矩阵**
+- [x] **Step 2: 完成路径矩阵**（Linux symlink；Windows/Junction 未验）
 
 在 fixture 内记录完整展开后的 argv；至少包含以下真实对照。`CODEX_EXE` 须绑定 Step 1 的绝对路径。
 
@@ -174,7 +176,7 @@ EOF
 
 Expected：文件路径规则精确命中，禁用一个同名 skill 不影响另一实际路径；canonical 规则能覆盖链接入口。偏差写出具体行为并修订计划，不手工整理成预期结论。
 
-- [ ] **Step 3: 完成 User / CLI 数组合并矩阵**
+- [x] **Step 3: 完成 User / CLI 数组合并矩阵**（实测须显式 true，见上方偏差）
 
 先在 fixture `config.toml` 写下列两种规则并分别实验：
 
@@ -192,11 +194,11 @@ enabled = false
 
 Expected：选中 allow 能在本次会话重新可用，block 保持不可用，fixture 配置字节不变。若数组替换不足以覆盖 User 层 deny，记录其实际叠加方式；在找到可验证的会话级方案前，不进入 Task 4，不用 CODEX_HOME 替换或改写用户文件作为产品补丁。
 
-- [ ] **Step 4: 记录 bundled 与参数追加行为的对照**
+- [x] **Step 4: 记录 bundled 与参数追加行为的对照**（参数解析与 debug prompt-input；未调用模型）
 
 测试 `skills.bundled.enabled=true/false`，检查已经存在和尚未创建的 `.system` 缓存；记录真实内置 skill 范围。测试普通交互、`exec` 的尾部 `-c` 是否生效，以及透传独立 `--` 后尾部 `-c` 是否退化为位置参数。测试项目 config/profile 能否改变此结论。不要把未知键被静默接受当作 bundled 生效。
 
-- [ ] **Step 5: 提交证据**
+- [x] **Step 5: 提交证据**
 
 ```sh
 git add docs/verification.md internal/agent/codex/testdata/verification/README.md

@@ -42,7 +42,7 @@
 | | Claude Code | Codex CLI | OpenCode |
 |---|---|---|---|
 | 发现目录 | `$CLAUDE_CONFIG_DIR/skills`（缺省 `~/.claude/skills`），项目 `.claude/skills`（含嵌套子目录，名字带作用域如 `apps/web:verify`）、`.claude/commands`、plugin `skills/`、`--add-dir` 目录下的 `.claude/skills`。不扫 `.agents/skills` | `~/.agents/skills`、项目 `.agents/skills`（cwd 向上到仓库根每一级）、项目 `.codex/skills`、`$CODEX_HOME/skills`（已废弃但仍读）、`/etc/codex/skills`、plugin | `.opencode/skill(s)`、`~/.config/opencode/skill(s)`、`~/.opencode`、`OPENCODE_CONFIG_DIR`、兼容 `.claude/skills` 与 `.agents/skills`（全局与项目级）、配置 `skills.paths`（本地目录）、`skills.urls`（远程） |
-| 按名开关 | settings `skillOverrides`（`on`/`off`/`name-only`/`user-invocable-only`，不作用于 plugin skill）、`enabledPlugins`（键为 `plugin@marketplace`）、`disableBundledSkills` | `[[skills.config]]`：`path`（`AbsolutePathBuf`，规则构建时 canonicalize，精确集合匹配）或 `name`（与已加载 skill 名精确比较后折算为路径）+ `enabled`；只从 User 层与 `-c` 覆盖层读取；denylist 语义，无「默认全关」；`skills.bundled.enabled`；`[plugins."id"] enabled` | `permission.skill` 通配 allow/deny/ask，后写规则胜出，原生支持白名单；plugin 无 per-plugin 开关 |
+| 按名开关 | settings `skillOverrides`（`on`/`off`/`name-only`/`user-invocable-only`，不作用于 plugin skill）、`enabledPlugins`（键为 `plugin@marketplace`）、`disableBundledSkills` | `[[skills.config]]`：`path`（`AbsolutePathBuf`，规则构建时 canonicalize，精确集合匹配）或 `name`（与已加载 skill 名精确比较后折算为路径）+ `enabled`；从 User（含运行时 profile）与 `-c` 覆盖层读取；逐路径启停，无「默认全关」；`skills.bundled.enabled`；`[plugins."id"] enabled` | `permission.skill` 通配 allow/deny/ask，后写规则胜出，原生支持白名单；plugin 无 per-plugin 开关 |
 | 注入额外 skill 目录 | `--add-dir <dir>`（同时授予文件访问权）或 `--plugin-dir` | 无干净入口；`CODEX_HOME` 会连带重定向 config/auth/sessions | `skills.paths` 或 `OPENCODE_CONFIG_DIR`（追加而非替换） |
 | 会话级注入通道 | `--settings <file>` | `-c key=value`，值按 TOML 解析 | 环境变量 `OPENCODE_CONFIG_CONTENT`（内联 JSON，最后合并）；无 `--config` 参数 |
 | 有效 skill 名 | 目录名，嵌套项目目录带作用域前缀 | frontmatter `name` | frontmatter `name` |
@@ -358,10 +358,12 @@ Capabilities 取值：
 | 步骤 | 内容 |
 |---|---|
 | Inventory | 扫描 Codex 可见目录；读 `$CODEX_HOME/config.toml` 的 `[plugins.*]` 键与 `$CODEX_HOME/plugins` 缓存目录得到 plugin 全集 |
-| ControlArgs | `-c 'skills.config=[{path="<abs SKILL.md>",enabled=false},...]'` 列出全集中不在白名单的每个入口；`path` 为绝对路径，skope 先自行 canonicalize 再写入，以匹配 Codex 的 canonicalize 行为；`-c skills.bundled.enabled=<bool>`；对全集中每个不在允许集合的 plugin 写 `-c 'plugins."<id>".enabled=false'` |
+| ControlArgs | `-c 'skills.config=[{path="<allowed abs SKILL.md>",enabled=true},{path="<blocked abs SKILL.md>",enabled=false},...]'` 对普通 skill 全集逐路径显式设置，允许项写 true，其余写 false；`path` 为绝对 SKILL.md 文件路径，skope 先自行 canonicalize 再写入；`-c skills.bundled.enabled=<bool>`；对全集中每个不在允许集合的 plugin 写 `-c 'plugins."<id>".enabled=false'` |
 | 投影 | 不支持。白名单里 Codex 看不到的 ID 记为 unavailable |
 
-用 `path` 而不用 `name`，避免同名不同目录被一起关闭。Codex 是 denylist 语义，skope 通过「枚举全集再逐条关闭」模拟白名单。扫描到启动之间新增的 skill 存在竞态。
+用 `path` 而不用 `name`，避免同名不同目录被一起关闭。Codex 没有默认全关，skope 枚举普通 skill 的 canonical 路径全集，按选中的 ID 显式写 true/false。共享 canonical 目标只写一项，任一别名被选中则允许并告警。bundled/plugin skill 不混入普通路径开关。扫描到启动之间新增的 skill 存在竞态。
+
+Codex CLI 0.153.1 的真实验证证明：User 层 path/name 禁用规则不会被 CLI 空数组或仅包含其他路径的新数组清除；CLI 精确 path=true 能重新启用选中路径，其他同名路径仍受原禁用规则约束。同一路径重复规则最后一项生效，所以 skope 必须去重。即使普通全集为空也输出 skills.config=[]，但不能声称该空数组清除了用户禁用项。项目配置的 skills.config 虽进入有效配置，skills/list 不采用该层的 skill 规则。完整对照见 docs/verification.md 第 1、9 条。
 
 ### 7.3 OpenCode
 

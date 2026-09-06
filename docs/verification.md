@@ -162,12 +162,14 @@ cache-only.json 与 auto-off 相同，额外 cache-plugin@skope-git-fixture=true
 
 ### 第 1 条：`-c skills.config` 按 `path` 关闭 skill
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：通过（2026-09-06；原生 Linux 实验）。
+- agent 版本：Codex CLI 0.153.1；官方 release 的 Linux musl x86_64 二进制 `/var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl`，SHA-256 `b9315df68cb0e2827c940ffacb66f7524e820d9744060c755fbf938724ad2b76`。
+- fixture：唯一临时 HOME/USERPROFILE/CODEX_HOME、独立 git repo；allow/block、同名 other-id、中文空格目录、两个 symlink 入口共享一个目标。未复制配置、凭据或调用模型。
+- 命令：`python3 internal/agent/codex/testdata/verification/path_controls.py /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl`。完整 argv 与 JSON-RPC 协议、fixture 构建见 [实验记录](../internal/agent/codex/testdata/verification/README.md)；脚本启动真实 `app-server --stdio`，经当版 schema 确认的 `skills/list`/`config/read` 观察 path/enabled/来源层，另以真实 `debug prompt-input` 检查模型可见清单。
+- 观察：SKILL.md 文件 false 精确关闭；目录 false 无效；同名不同文件互不连带；Unicode/空格文件有效；链接入口文件与 canonical 文件均命中，同目标只返回一条 skill。所有返回 skill 的路径都在 fixture。
+- bundled：true 时有 imagegen、openai-docs、plugin-creator、review-agent、skill-creator、skill-installer；false 时全部消失。未创建缓存时 false 不创建 `.system`，true 创建并列出六条。未执行这些 skill。
+- 参数：交互/exec 尾部 `-c sandbox_mode="p3-invalid"` 均进入配置校验；独立 `--` 后分别报 `unrecognized subcommand '-c'` / `unexpected argument '-c'`，未应用控制。运行时 `-p fixture` 的配置文件 deny 可被显式 CLI true 覆盖；旧 profile 字段明确报不支持。
+- 限制：Windows 同版 CLI 忽略 fixture HOME/USERPROFILE 的 user skill 根，使用系统 Known Folder；初次只读发现真实全局路径后停止，没有把该组计入通过。原生 Windows 路径/Junction 与真实交互模型调用未验，本条通过范围为 Linux 路径规则与模型可见 prompt。
 
 ### 第 6 条：项目级 skills 目录的扫描范围
 
@@ -180,12 +182,12 @@ cache-only.json 与 auto-off 相同，额外 cache-plugin@skope-git-fixture=true
 
 ### 第 9 条：plugin ID 格式与 `skills.config` 跨层合并语义
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：未验证（路径跨层部分已完成并修订 spec §7.2；plugin ID 等待 Task 2）。
+- agent 版本、fixture、完整命令同第 1 条及其实验记录。
+- 观察：User path=false、name=false、两者组合的三组规则均不会被 CLI `skills.config=[]` 或仅 block=false 的新数组清除。CLI allow path=true + block path=false 在三组中均恢复 allow；其他同名路径继续禁用。同一路径重复项最后一项胜出。所有 app-server 组的 fixture config.toml 字节不变。
+- 交叉验证：`debug prompt-input` 真实输出证明 User path/name 禁用后的 allow 被 CLI true 恢复，block 从模型可见 skill 清单消失；不是仅凭模型自述或退出 0。
+- 层边界：trusted project skills.config 出现在 config/read 的有效配置及 project 来源，但 skills/list 不应用该层规则；`-p fixture` 的运行时用户 profile 文件会应用规则且 CLI true 可覆盖。app-server 拒绝 `-p`，因此 profile 结论来自 debug prompt-input。
+- 结论：纯 denylist 或空数组不能清除 User 禁用。普通 skill 必须枚举 canonical 路径全集，对选中项显式 true，其余 false，spec §7.2 已修改；不需要产品重定向 CODEX_HOME 或改写用户文件。plugin ID、插件配置层与发现范围仍需 Task 2 验证。
 
 ## OpenCode（阻断 Phase 4）
 
