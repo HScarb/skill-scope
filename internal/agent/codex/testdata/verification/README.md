@@ -173,3 +173,12 @@ unshare --user --map-root-user --mount --net python3 internal/agent/codex/testda
 复跑会打印唯一目录，保存 results.json（含完整 skope/delegate argv、prompt、owner）和 summary.json；这些原始输出与 bundled 正文不提交仓库。最终构建身份、SHA-256、目录和 CI 链接见仓库 docs/verification.md 的 Phase 3 记录。这里证明真实 Codex 的 prompt 加载与 Unix handoff，不宣称模型执行 skill 或认证远端插件已验证。
 
 最终代码审查补充 CODEX_HOME 反例：尾空格目录必须按原值扫描；纯空白是相对路径，active 报错；含符号链接和 `..` 的根在 active dry-run/launch 前拒绝，none 仍按真实 CLI 语义加载。修复前 `13a7ba4` 产物在新增 space-home-active 断言失败，未允许 skill 确实进入 prompt；修复后完整矩阵须重新执行，最终身份见 docs/verification.md。
+
+
+Task 13 质量复审补充进程清理：每次 Popen 使用独立 session/process group；观测或 communicate 异常时终止整个组，再 communicate 回收，重新抛出原异常。即使直接子进程已退出，也不能跳过仍占用管道的后代。受控回归仅用 Python 标准库，从脚本 AST 提取实际 run 函数，不执行 Codex/挂载/fixture 初始化：
+
+```sh
+python3 internal/agent/codex/testdata/verification/test_skope_acceptance_lifecycle.py -v
+```
+
+四个场景为正常子进程、真实 communicate 超时、观测 PermissionError、父进程已退出但后代持有管道。测试确认原异常对象保留、父进程被回收、后代因 SIGKILL 退出并被测试 subreaper 回收、/proc 条目消失。修复前超时与观测异常明确失败（直接子进程仍存活）；测试自身也清理红灯版本的进程。不会用真实 Codex 制造异常。

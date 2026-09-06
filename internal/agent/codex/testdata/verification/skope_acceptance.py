@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -59,19 +60,33 @@ def unchanged():
 def run(label, args, expected=0):
     argv = [str(SKOPE), *args]
     proc = subprocess.Popen(argv, cwd=REPO, env=ENV, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True)
     delegate = None
-    if "prompt-input" in args or "features" in args:
-        for _ in range(500):
-            try:
-                executable = Path(f"/proc/{proc.pid}/exe").resolve(strict=True)
-                if executable == CODEX_EXE:
-                    delegate = {"exe": str(executable), "argv": Path(f"/proc/{proc.pid}/cmdline").read_bytes().decode().rstrip("\0").split("\0")}
+    try:
+        if "prompt-input" in args or "features" in args:
+            for _ in range(500):
+                try:
+                    executable = Path(f"/proc/{proc.pid}/exe").resolve(strict=True)
+                    if executable == CODEX_EXE:
+                        delegate = {"exe": str(executable), "argv": Path(f"/proc/{proc.pid}/cmdline").read_bytes().decode().rstrip("\0").split("\0")}
+                        break
+                except FileNotFoundError:
                     break
-            except FileNotFoundError:
-                break
-            time.sleep(0.01)
-    stdout, stderr = proc.communicate(timeout=45)
+                time.sleep(0.01)
+        stdout, stderr = proc.communicate(timeout=45)
+    except BaseException as error:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError as cleanup_error:
+            error.add_note(f"Failed to terminate acceptance process group: {cleanup_error}")
+        try:
+            proc.communicate()
+        except BaseException as cleanup_error:
+            error.add_note(f"Failed to reap acceptance process: {cleanup_error}")
+        raise
     record = {"case": label, "argv": argv, "pid": proc.pid, "exit": proc.returncode,
               "stdout": stdout, "stderr": stderr, "delegate": delegate}
     RESULTS.append(record)

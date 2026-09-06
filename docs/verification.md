@@ -501,3 +501,6 @@ bundled=false
 Task 1 Windows 真 Codex 实验和 Task 11 旧 TestProductionLaunchProjectsDiscoveryLinkWithFakeProbe 各发生一次 Known Folder 忽略 HOME/USERPROFILE 的意外只读来源访问；未保存用户 skill 正文。前者转 Linux 私有 namespace，后者在 fixture 创建前加入 Windows skip，并对 Unix 固定 admin 入口仅 Lstat 后决定执行/skip。Task 10 公共 binary guard 与后续修复共同覆盖生产装配入口；不能声称本阶段从未意外发现真实来源。
 
 交付时一次未指定 ref 的 git push 因既有 push.default=matching 同时将远端 main 从 b329857 快进到原有本地文档提交 db64dec（Phase 3 计划），已立即报告主控；未合并 Phase 3 产品代码，未 force push 或自行回退。之后所有推送显式限定 HEAD:refs/heads/codex/phase3-codex-adapter。
+
+
+Task 13 质量复审发现验收 harness 的超时/观测异常会遗留子进程。脚本已改用独立 session/process group，在异常时无条件 killpg 后 communicate 回收并保留原异常，包含父进程先退出、后代仍持管道的情况。新增标准库受控回归先在旧实现中复现超时/观测异常后父进程仍活；修后四个场景全部通过，父进程与后代均无残留。正常真实 Codex 23 case 也完整复跑通过，证据 `/var/tmp/skope-phase3-acceptance-6y1jpted`，仍使用上文 `ed39e41` 产品产物和同一 SHA-256；本次只修改验收 harness，没有将产品产物冒称为后续 harness 提交。21 文件字节/旧 mtime 不变，最终 session=0；代码语法与 diff 检查通过。独立针对性复审仍待确认。
