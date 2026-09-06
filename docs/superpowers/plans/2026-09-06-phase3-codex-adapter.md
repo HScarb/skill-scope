@@ -12,7 +12,7 @@
 
 **Spec 对应：** `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §3、§4.1–§4.4、§5.3/§5.5、§6.1–§6.3/§6.6、§7.2/§7.4/§7.5 第 1、6、9 条、§8.1/§8.2、§9–§12、§14.3/§14.7。
 
-**执行状态：** Task 1–2 本地 Linux 门禁及独立审查已通过（基线 eb3cdad）；Task 3 已统一契约，Task 4–13 待实现。真实证据为 Codex CLI 0.153.1 的 53+3+3 组发现/plugin 对照及 Task 1 路径对照；Windows/Junction、真实交互模型、认证远端闭环仍未验，不混作本地实现门禁。
+**执行状态：** Phase 3 complete。Task 1–13 实现、逐任务 Spec/质量审查及全局代码审查全部通过；Task 12 平台门禁和 Task 13 真实验收已关闭。证据包含 Codex CLI 0.153.1 前置发现/plugin 对照、最终 23 组真实 skope 加载/交接验收及三平台 CI。Windows 扫描/Junction 的自动测试已执行；真实 Windows Codex、交互模型和认证远端闭环仍不在本期已验证范围。
 
 **执行技能：** 使用用户指定的 `@superpowers:subagent-driven-development` 逐任务实施并作独立 spec→quality 审查，编码参考 `@karpathy-guidelines`；行为变更使用 `@superpowers:test-driven-development`，失败使用 `@superpowers:systematic-debugging`，最终交付使用 `@superpowers:verification-before-completion`。每个测试矩阵逐行完成红灯、最小实现、绿灯，再处理下一行；每一步控制在约 2–5 分钟，真实实验和全量门禁按实际耗时记录。
 
@@ -402,7 +402,7 @@ git commit -m "feat: discover Codex roots and generalize bounded foreign scans"
 - 补充真实 CLI 0.153.1 对照确认 skills 根自身 SKILL.md 和 child 均加载，根 manifest 为两者增加前缀。两组隔离 debug prompt 均 exit 0，未调用模型；父代理取证目录为 `/var/tmp/skope-p3-root-o3rek403/`，实现测试为 `TestScanCodexIncludesRootSkillAndRootManifestNamespace`。
 - description 缺失、空值、非字符串仅使 foreign 无 CodexNames，保留可供 Claude 投影的 Location；native 同情况静态错误。既有非法 YAML/name 非字符串仍报错，冻结 Location 未加字段。固定 x/sys v0.41.0 的 FOLDERID_Profile 已为指针，正确调用是 `windows.KnownFolderPath(windows.FOLDERID_Profile, 0)`。
 - Windows `go test ./internal/skill ./internal/host -count=1`、`go test -short ./...` PASS；golangci-lint v2.13.2 对两个包检查为 0 issues，并运行其 gofmt/goimports formatter。WSL 原生 Linux 两包 `go test -race ... -count=1` PASS，包含 FIFO、真实 symlink；Windows Junction 验证中间目录、双 discovery、循环有界与 scanner 重用。覆盖率抽查 skill 94.3%、Windows host 68.2%，不以该抽查代替最终跨平台门禁。
-- Linux 首轮回归指出旧“断链”fixture 实际只删除 SKILL.md、链接目标目录仍存在；已分别断言合法空分组跳过和删除目标目录后的真正断链报错，SKILL.md 自身 dangling symlink 仍 fail-closed。read/close 联合错误断言继续通过。Task 4 独立 spec/quality 审查由父代理随后执行，Phase 3 尚未完成。
+- Linux 首轮回归指出旧“断链”fixture 实际只删除 SKILL.md、链接目标目录仍存在；已分别断言合法空分组跳过和删除目标目录后的真正断链报错，SKILL.md 自身 dangling symlink 仍 fail-closed。read/close 联合错误断言继续通过。当时 Task 4 尚待独立 spec/quality 审查；后续审查已通过，最终完成状态见 Task 13。
 
 - Task 4 规格补审修复：移除 ReadCodexManifest 未约定的 1 MiB 上限，复用既有普通文件检查与安全 OpenRegular 读取。大于 1 MiB 的合法 manifest（长无关 description）测试先以 invalid manifest file 红灯，修复后两种 opener 路径均通过；同时验证替换成特殊文件的错误、read/close 联合错误和 JSON 正文保密。Windows skill 包测试通过，Linux manifest 与真实 FIFO 定向测试通过，局部 lint 0 issues。
 
@@ -724,7 +724,7 @@ git commit -m "feat: reject conflicting Codex configuration and source arguments
 
 **2026-09-06 Task 9 实施记录：** Codex checker 拼接 config/user tokens 并保留来源，覆盖 5 种 config 形式、cwd/profile、remote_plugin feature 开关和 agent argv 独立分隔符；整体 key trim 后直接 dot splitting，不 trim 内部分段、不解析引号或 RHS。ConflictError 增加 Agent/可选 ValueSource，Claude 旧文案保留；无效值与跨来源错误只输出静态说明、flag 和来源。真实 CLI 20 组 features 对照确认空白、引号和 --enable 顺序覆盖，10 组 runtime prompt-input 确认 cwd/profile 参数形式，复现脚本和断言见 verification/cli_forms.py 与 README。CLI 黑盒、Service 提前阻断/none、skope 首分隔符回归覆盖；Service 未新增 cli 依赖，未注册 Codex 或改 foreign 装配。
 
-验证：首先定向 Codex 测试因原分支返回 nil 而红灯；实现后定向 cli 测试、launch 全包、Windows 全仓 short 通过。跨来源无效值缺少 ValueSource 的补充回归先红后绿。Linux cli/launch race 通过；golangci-lint v2.13.2 fmt --diff 无输出、两个包 run 为 0 issues。等待独立 spec 与 quality 审查。
+验证：首先定向 Codex 测试因原分支返回 nil 而红灯；实现后定向 cli 测试、launch 全包、Windows 全仓 short 通过。跨来源无效值缺少 ValueSource 的补充回归先红后绿。Linux cli/launch race 通过；golangci-lint v2.13.2 fmt --diff 无输出、两个包 run 为 0 issues。后续独立 spec 与 quality 审查已通过。
 
 ### Task 10: 按目标合并外来来源与 launch 编排
 
@@ -802,7 +802,7 @@ git commit -m "feat: merge target-specific foreign sources during launch"
 
 红灯证据：`go test ./internal/cli -run TestBinarySourceGuard -count=1` 首次因缺 binarySourceGuard 失败，补公共保护后通过；随后指定 launch 定向命令因缺 ScanResult.Warnings 失败，cli 定向命令因缺 NewForeignScanner 失败。真实 adapter 服务测试覆盖 unavailable/command-only/native+foreign、一次原生扫描、panic Inspector/Copier、active/dry 顺序、真实 manager 只有 owner.json、none 旁路坏 skillsets/Codex metadata，以及真实 canonicalize/Report/Handoff/取消失败与 joined Abort。额外来源测试覆盖 scope/admin 投影、plugin-only 不复制、bundled 排除、限额/特殊文件保留拒绝、目录 I/O 与取消、catalog warning 无可变别名。调试中修正两处测试构造问题：仓库根 Scope 为空字符串、真实 manager 清理必须保留 Stage 返回的会话句柄；未据此修改产品语义。
 
-验证：Windows `go test ./internal/launch -count=1`、`go test ./internal/cli -run 'TestBinarySourceGuard|TestForeignSources|TestIntegrationPhaseTwo' -count=1`、全仓 `go test -short ./...` 通过；固定 golangci-lint v2.13.2 fmt --diff 无输出、cli/launch/skill 三包 run 为 0 issues。Windows verbose 输出确认 active binary 由 guard skip，none dry-run、help binary、Phase 2 注入应用与新增来源服务测试实际 PASS。WSL Ubuntu 使用既有离线 Go/GOPATH 运行 `go test -race ./internal/cli ./internal/launch -count=1 -v` 通过，输出无 SKIP；PhaseTwoDryRunInspectsCompleteInventoryWithoutWriting 和 PhaseTwoLaunchCopiesCompleteTreeAndReapsExitedOwner 实际 PASS，说明公共 guard 检查两固定入口 ENOENT 后运行。未执行真实 Codex/模型/认证，也未读取真实用户配置或 skills。等待独立 spec→quality 审查。
+验证：Windows `go test ./internal/launch -count=1`、`go test ./internal/cli -run 'TestBinarySourceGuard|TestForeignSources|TestIntegrationPhaseTwo' -count=1`、全仓 `go test -short ./...` 通过；固定 golangci-lint v2.13.2 fmt --diff 无输出、cli/launch/skill 三包 run 为 0 issues。Windows verbose 输出确认 active binary 由 guard skip，none dry-run、help binary、Phase 2 注入应用与新增来源服务测试实际 PASS。WSL Ubuntu 使用既有离线 Go/GOPATH 运行 `go test -race ./internal/cli ./internal/launch -count=1 -v` 通过，输出无 SKIP；PhaseTwoDryRunInspectsCompleteInventoryWithoutWriting 和 PhaseTwoLaunchCopiesCompleteTreeAndReapsExitedOwner 实际 PASS，说明公共 guard 检查两固定入口 ENOENT 后运行。未执行真实 Codex/模型/认证，也未读取真实用户配置或 skills。后续独立 spec→quality 审查已通过。
 
 ### Task 11: 注册 Codex 命令并输出真实计划摘要
 
@@ -878,7 +878,7 @@ git commit -m "feat: expose Codex launches and agent-specific previews"
 - Test: `internal/cli/integration_test.go`（复用 Task 10 已交付的公共 binary guard，不在此 Task 首次补防护）。
 - Modify only if needed: 对应失败的业务文件，按失败用例限定修改。
 
-- [ ] **Step 1: 建立独立 fixture 与 fake-agent 启动链**
+- [x] **Step 1: 建立独立 fixture 与 fake-agent 启动链**
 
 复用 `testutil.BuildFakeAgent`、`BuildSkope`。完整测试在 `testing.Short()` 时跳过编译 helper；纯应用注入测试保持短测试可执行。每个 fixture 显式设置 HOME/USERPROFILE、CODEX_HOME、CLAUDE_CONFIG_DIR、SKOPE_HOME 和 cwd；不依赖真实用户的安装目录、认证、系统 admin skill。
 
@@ -940,7 +940,7 @@ git commit -m "test: verify Codex isolation end to end with fake agents"
 - 首轮新增测试失败来自 fixture 沿用 Claude 的无 description 文档及 bundled 默认 true，与 Codex 契约不匹配；修正 fixture 后通过。没有发现或修复产品 bug，不把 fixture 修正描述为产品红绿证据。固定 lint 发现并修正测试变量名、resolver 错误返回及 bundled 单向覆盖，最终 0 issues。
 - Windows：`go test ./internal/cli -run TestIntegrationPhaseThree -count=1 -timeout 180s -v`、`go test ./internal/cli -run TestIntegrationPhaseTwo -count=1 -timeout 180s`、四相关包与 `./internal/testutil/...` 完整测试、`go test -short ./... -count=1 -timeout 180s` 通过。Phase 3 binary help/dry-none 实际 PASS；active、active dry-run 来源 guard、Unix handoff 用例跳过。注入应用 active/dry-run、真实 Junction/retarget 均实际执行。
 - WSL Ubuntu：Phase 3 `-v` 全组实际 PASS、无 skip，真实 fakeagent PID 等于 owner PID、退出码 23 原样保留、仅 owner.json、下一次 dry-run 回收。`go test -race ./internal/agent/codex ./internal/skill ./internal/launch ./internal/cli ./internal/testutil/... -count=1 -timeout 180s` 通过，包含原 Phase 2 回归。使用既有离线 Go runtime/GOPATH，未调用真实 Codex CLI、认证或模型。
-- 只对三个实际改动 Go 文件运行固定 `golangci-lint@v2.13.2 fmt`，`run ./internal/cli/... ./internal/testutil/...` 通过。Step 1 本地 fixture 工作完成；其 macOS 实际运行及同提交 CI 链接尚未验证，保留未勾选，交由 Task 13 在 PR CI 收集。fakeagent 仅证明生成参数与生命周期，实际 Codex 配置覆盖效果仍待 Task 13。
+- 只对三个实际改动 Go 文件运行固定 `golangci-lint@v2.13.2 fmt`，`run ./internal/cli/... ./internal/testutil/...` 通过。当时 Step 1 仅完成本地 fixture；Task 13 已补齐 macOS 实际执行及同提交 CI 证据。fakeagent 证明生成参数与生命周期，真实 Codex 配置覆盖另由 Task 13 的 23 组验收证明。
 - Task 12 审查补强：测试 TOML 解码的 path/plugin/bundled/remote 布尔字段改用 `*bool`，先检查非 nil 再比较值。临时局部反例分别省略四类字段，均在对应显式字段断言失败；反例文件已移除，此为测试断言能力验证，不是产品 bug 红绿。首次 binary active 前记录 Codex config、skope config、skillsets 字节并将 mtime 固定为 2001-02-03T04:05:06Z，active 和后续 dry-run 分别核对字节及 mtime 未改写。Windows `go test -short ./internal/cli ./internal/testutil/... -count=1 -timeout 180s`、WSL `go test -race ./internal/cli -run TestIntegrationPhaseThree -count=1 -timeout 180s -v` 通过（WSL 全组实际执行、无 skip），固定 lint `run ./internal/cli/...` 为 0 issues。
 
 ### Task 13: 质量门禁、真实 Codex 验收与交付文档
@@ -950,7 +950,7 @@ git commit -m "test: verify Codex isolation end to end with fake agents"
 - Modify: `README.md`、`docs/verification.md`、`docs/superpowers/plans/2026-09-06-phase3-codex-adapter.md`。
 - Modify only when needed: `docs/superpowers/specs/2026-09-02-skill-scope-design.md`。
 
-- [ ] **Step 1: 类型、依赖与格式审计**
+- [x] **Step 1: 类型、依赖与格式审计**
 
 对基线 b329857 核对六个冻结类型、`cmd/skope/main.go`、go.mod/go.sum。允许计划内的辅助类型/消费接口变更；禁止 cli/launch 向上依赖或 adapter 互相 import。只对实际改动文件运行 gofmt/goimports；固定版本 golangci-lint `fmt` 若修改无关文件，检查并只保留本期必要 diff。
 
@@ -965,13 +965,13 @@ git status --short
 
 Windows make 从 Git Bash 运行；PowerShell 用 `go test '-coverprofile=coverage.txt' -count=1 ./...`。Expected：test/build/vet/lint 全绿。记录总覆盖率与 Codex 新包覆盖，目标至少 80%；不通过排除业务文件或填充 getter 测试提升数字。
 
-- [ ] **Step 2: 干净 clone 复验和 CI**
+- [x] **Step 2: 干净 clone 复验和 CI**
 
 从已提交实现创建一次性 clone，运行 make check 与完整 fake-agent fixture，确认不依赖未跟踪的 fixture/AGENTS.md。按实施会话已有授权推送功能分支并创建/更新 PR；PR 描述行为、spec、验证命令、CLI 输出和 Windows 边界。本仓库功能分支靠 pull_request 触发 CI，只有 push 不能称三平台已验证。
 
 记录同一最终实现提交对应的 Ubuntu/macOS race、Windows test/build 与 lint run URL。CI 失败时保留真实失败并修复，最终实现变更后重新核对产物身份。
 
-- [ ] **Step 3: 绑定真实验收产物**
+- [x] **Step 3: 绑定真实验收产物**
 
 在执行验收的 Linux/macOS/WSL 环境，从已提交实现的干净 clone 根构建。使用本次新临时目录的绝对路径，不使用 PATH 中的 skope，不沿用 Phase 2 二进制：
 
@@ -986,7 +986,7 @@ go version -m "$SKOPE_EXE"
 
 Expected：version=phase3-本次提交，VCS revision 与代码一致、vcs.modified=false、OS/架构匹配执行环境。Windows worktree 在 WSL 的 VCS stamp 曾出现指向主工作区的情况，优先独立 Linux clone；任一身份检查失败都先修复构建步骤。
 
-- [ ] **Step 4: 用 skope 复验真实 Codex**
+- [x] **Step 4: 用 skope 复验真实 Codex**
 
 复用 Task 1–2 fixture，在 fixture SKOPE_HOME 写含普通 allowed/blocked、Claude-only、disabled-plugin-only、missing、plugins.codex 和 bundled=false 的手写 skillset，并配置 Step 1 已固定的 Codex 实际 executable。设置好隔离环境后：
 
@@ -1004,13 +1004,13 @@ cd "$PHASE3_FIXTURE/repo"
 
 若必须通过 WSL→Windows bridge，明确它只验证 Windows Codex 能力；桥接必须准确转换每一个 TOML path 和 cwd，并做 TOML 往返核对，不能对整个参数文本做路径替换。Unix 原生 handoff 继续以 CI 为证据。无法证明转换正确时保留未验证，不把实验桥接加入产品。
 
-- [ ] **Step 5: 更新文档与完成条件**
+- [x] **Step 5: 更新文档与完成条件**
 
 README 增加 `skope codex`、`plugins.codex`、空全集 [] 与全选全部 true 的不同语义、remote_plugin=false 的本地支持限定、无投影与 same-canonical 别名限制、cwd/profile 冲突提示、dry-run 不探测 Codex CLI、实际支持的配置/插件版本范围。更新 Claude 的新增 Codex 项目/admin 外来来源；明确非目标 Claude plugin 枚举仍为 Phase 5。
 
 `docs/verification.md` 追加 Phase 3 的基线/提交、自动门禁、CI、真实验收产物和实验结论。只有 Task 1–13 的实现、测试和真实验收均有证据才标 Phase 3 complete；缺模型额度、认证或真实平台时保持相应步骤未勾选，不能只因代码全绿宣称完成。
 
-- [ ] **Step 6: 提交交付文档并核对最终状态**
+- [x] **Step 6: 提交交付文档并核对最终状态**
 
 ```sh
 git add README.md docs/verification.md docs/superpowers/plans/2026-09-06-phase3-codex-adapter.md
@@ -1021,16 +1021,17 @@ git status --short
 
 若 spec 有实际修订，显式加入。临时 clone/fixture 删除前核对其绝对路径确属本次创建范围；Windows 使用同一 PowerShell 的 `Remove-Item -LiteralPath`，不跨 shell 拼装删除。用户未跟踪 AGENTS.md 留在原位。
 
-**2026-09-06 Task 13 实施记录（待独立复审后关闭）：**
+**2026-09-06 Task 13 实施记录（独立复审通过，已关闭）：**
 
 - Windows Go 1.27.1 的 make check 全通过，固定 lint 2.13.2 为 0 issues；最终 fresh coverage 总 88.5%，Codex 89.1%。冻结六类型、main、go.mod/go.sum 相对 b329857 无 diff。
-- CI 新增 exact TestIntegrationPhaseThreeBinaryIsolationAndReaping JSON 断言：Unix 必须 pass 且非 skip。PR #3 的 13a7ba4 和修复后的 ed39e41 三平台 CI 全绿；Ubuntu/macOS active 明确实际执行。Task 12 Step 1 的平台证据已补齐，最终勾选仍随独立最终复审关闭。
+- CI 新增 exact TestIntegrationPhaseThreeBinaryIsolationAndReaping JSON 断言：Unix 必须 pass 且非 skip。PR #3 的 13a7ba4 和修复后的 ed39e41 三平台 CI 全绿；Ubuntu/macOS active 明确实际执行。Task 12 Step 1 的平台证据已补齐，并经独立最终复审关闭。
 - 首轮 CI 暴露 Go 1.24 MapFS 的悬空链接 ReadDir 不支持，e4fb1e8 显式模拟宿主 fs.ErrNotExist，原断言保留；未修改产品扫描器。
 - 独立 Linux clone `/var/tmp/skope-phase3-final-task13-source` 在 ed39e41 make check 全通过；host/codex/cli fresh race 通过。离线固定 tool cache 通过进程级 file:// GOPROXY 与 GOSUMDB=off 使用，未改用户配置或依赖。
 - 最终只读 review 的 Important 为 CODEX_HOME TrimSpace/Clean 与真实 handoff 原环境不一致。新增单元测试先红；旧 13a7ba4 真实产物在尾空格反例中漏禁 skill。ed39e41 保留非空原值、拒绝纯空白相对路径，并在 Clean 前拒绝平台 home/CODEX_HOME 的 `..` 段；spec 和 Task 4 的旧 trim 约定同步修订。
-- 重新绑定 `SKOPE_EXE=/var/tmp/skope-phase3-build-Ojbcft/skope`，version/vcs=ed39e41fab769d30fb5654c11aef189cb748e9be、modified=false；SHA-256 7ded09b187d656854b6f88894bf789fa51afc3a420744d5338afda67f6a7dcd3。真实 Codex 0.153.1 的扩展 23 case 全通过，21 个配置/来源文件字节和固定旧 mtime 不变，最终 session=0；fixture `/var/tmp/skope-phase3-acceptance-mndx7ya1`。
+- 重新绑定 `SKOPE_EXE=/var/tmp/skope-phase3-build-Ojbcft/skope`，version/vcs=ed39e41fab769d30fb5654c11aef189cb748e9be、modified=false；SHA-256 7ded09b187d656854b6f88894bf789fa51afc3a420744d5338afda67f6a7dcd3。真实 Codex 0.153.1 的扩展 23 case 全通过，21 个配置/来源文件字节和固定旧 mtime 不变，最终 session=0；初次修复 fixture `/var/tmp/skope-phase3-acceptance-mndx7ya1`；harness 异常清理补强后同一 ed39e41 产品产物完整复验，最终 fixture 为 `/var/tmp/skope-phase3-acceptance-6y1jpted`。
 - 完整 harness 已提交，/proc 同 PID 的真实 exe/argv 与 prompt 加载记录均可复核；无认证、无模型调用，全部在私有 user/mount/net namespace。README 和 docs/verification.md 已记录本地支持边界、CODEX_HOME 修复和两次 Known Folder 意外来源发现的处置。
-- 修复后的独立复审、Task 13 Spec/质量审查尚待主控恢复后安排；因此 Task 12 Step 1、Task 13 和 Phase 3 complete 尚不勾选。证据目录保留供复核，不清理其他会话工具或 worktree。交付文档可先提交，不能将其当作复审已通过。
+- 最终全局代码审查、Task 13 Spec/质量审查及两项 Important 的针对性复审全部通过。README 已修正 plugin 不可投影的说明；29fbe9a 对验收 harness 增加独立进程组异常清理，四项受控回归和正常真实 23 case 均通过，审查确认无开放问题。
+- [CI 34033746778](https://github.com/HScarb/skill-scope/actions/runs/34033746778) 的 HEAD=29fbe9a77430f16d68b4a34457331eceda1e1c6c，Ubuntu/macOS race、active 非 skip 断言、Windows test/build 与 lint 全绿。Task 12 Step 1、Task 13 全部关闭，Phase 3 complete；PR 保持 draft，worktree、最终 clone/产品/fixture 留供用户审阅。
 
 ## 验收对应表
 
@@ -1065,4 +1066,4 @@ git status --short
 - 官方 skills 文档说明 `.agents/skills` 从 cwd 向上到 repo root、用户/admin 来源、symlink 支持，并给出指向 `SKILL.md` 的禁用示例；不足以证实旧 `.codex/skills` 与缓存布局。[Build skills](https://learn.chatgpt.com/docs/build-skills)。
 - 官方高级配置文档说明 `-c` 值按 TOML 解释、CODEX_HOME 存放配置/状态、项目配置按层读取；文档还说明较新 CLI 的 profile 使用独立文件，不能沿用旧 `[profiles.*]` 假设。[Advanced Configuration](https://learn.chatgpt.com/docs/config-file/config-advanced)。
 - 官方 plugin 页面说明 plugin 可提供多类能力，但没有给出足以替代 Task 2 的版本固定安装索引契约。[Plugins](https://learn.chatgpt.com/docs/plugins)。
-- 上述为最初规划参考；Task 1–2 已记录 CLI 0.153.1 真实本地观察，Task 3 已写回最终契约；实施与真实 skope 验收见各 Task 实施记录；最终关闭仍须独立复审。
+- 上述为最初规划参考；Task 1–2 已记录 CLI 0.153.1 真实本地观察，Task 3 已写回最终契约；实施与真实 skope 验收见各 Task 实施记录；最终独立复审已通过。

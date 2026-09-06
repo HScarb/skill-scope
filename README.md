@@ -6,7 +6,7 @@ with a session skill whitelist, without changing persistent agent settings.
 Claude also supports legacy commands and eligible foreign skill projection;
 Codex controls existing native paths and local installed plugins in place.
 
-**Status:** pre-alpha. Phase 3 implementation is undergoing final verification.
+**Status:** pre-alpha. Phase 3 implementation and verification are complete.
 Linux/macOS support launching Claude and Codex. Windows supports executable-based
 probes and dry-run; production process inspection, final handoff, and command
 script resolution remain Phase 6. OpenCode and interactive management remain
