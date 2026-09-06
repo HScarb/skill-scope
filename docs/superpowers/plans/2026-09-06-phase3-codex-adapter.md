@@ -25,7 +25,7 @@
 - 本计划进入版本控制后，实施前使用 `@superpowers:using-git-worktrees` 从包含 Phase 2 的最新 main 创建 `codex/phase3-codex-adapter`。计划编写不建立实现 worktree，也不执行产品改动。
 - 仓库没有 `.codegraph/`，直接使用 `rg` 和精确文件读取，不自动建立索引。
 - 六个冻结类型为 `Skill`、`Location`、`Adapter`、`Capabilities`、`LaunchPlan`、`Inventory`。本方案不修改它们；若真实实验要求修改，必须先修订 spec §4.2/§7，再调整计划并回归 Claude。
-- Linux/macOS 继续使用现有 exec handoff。Windows 本期覆盖扫描、规划、真实 exe 的 dry-run 和注入 handoff 的应用测试；最终 handoff、生产进程身份检查、`.cmd` 解析仍为 Phase 6。
+- Linux/macOS 继续使用现有 exec handoff。Windows 产品支持扫描、规划和 active dry-run，正常运行读取真实用户来源；自动测试的真实 binary 仅运行 none/help，active（含 dry-run）由注入临时 CodexPaths/handoff 的应用测试覆盖，不能靠 HOME/USERPROFILE 隔离 Known Folder。最终 handoff、生产进程身份检查、`.cmd` 解析仍为 Phase 6。
 - 真实实验使用临时 HOME、CODEX_HOME、SKOPE_HOME、CLAUDE_CONFIG_DIR 和独立仓库。生产 skope 不重定向 CODEX_HOME，不复制用户认证文件，不修改 Codex 配置或插件安装状态。
 
 | 当前文件 / 函数 | 已有行为 | 本期接法 |
@@ -703,8 +703,16 @@ git commit -m "feat: reject conflicting Codex configuration and source arguments
 - Modify: `internal/launch/launch.go`、`internal/launch/inventory.go`、`internal/launch/inventory_test.go`、`internal/launch/orchestration_test.go`。
 - Modify: `internal/skill/scan.go`（ScanResult.Warnings）、`internal/cli/root.go`（Foreign 装配）。
 - Update test doubles: `internal/launch/launch_test.go`、`internal/cli/phase2_application_test.go`。
+- Modify: `internal/cli/integration_test.go`（公共 integrationFixture.run 的 binary 防护）、`internal/cli/phase2_integration_test.go`（runPhaseTwo 及直接公共 fixture 调用的回归断言）；后续 phase3 binary fixture 必须复用该入口。
 
-- [ ] **Step 1: 写真实 scanner 到 Service 的测试**
+- [ ] **Step 1: 先完成公共 binary fixture 防护，再写 scanner 到 Service 的测试**
+
+此步必须在 Step 3 将 Codex Foreign 接入生产 composer 之前完成，并先于本 Task 的任何 binary 回归运行；不得延到 Task 12。`internal/cli/integration_test.go:integrationFixture.run` 在启动真实 skope 子进程前检查本次命令：Windows 的 active（含 dry-run）直接 skip，说明 HOME/USERPROFILE 不重定向 Known Folder；none/help 仍运行。不要在 newIntegrationFixture 构造时无条件 skip，Phase 2/3 注入应用测试仍须复用临时 fixture 并执行。
+
+Unix 的 active binary 运行前用 Lstat 检查固定 `/etc/codex/config.toml`、`/etc/codex/skills`；两者均 ENOENT 才启动。任一存在（包括链接）则 skip 并提示需要隔离环境，其他 Lstat 错误使测试失败；不打开宿主配置或遍历 skill 内容。该保护同时覆盖 Claude active，因为新 foreign composer 也会读取这些 Codex 来源。核对 `phase2_integration_test.go:runPhaseTwo` 委托公共 run，所有直接 fixture.run 调用都受保护；新增绕过公共入口的 binary 测试必须先接入同一 guard。
+
+guard 判断用注入 Lstat/平台输入测试 Windows active、Windows none/help、Unix 两根缺失/存在/错误，不接触真实来源正文。`phaseTwoService` 与本 Task 新增应用测试在运行前注入临时 Home/CodexHome/AdminSkillRoots/SystemConfigPaths，不能调用生产 Known Folder resolver。随后运行下表测试；Step 4 回归必须确认 guard 已生效。
+
 
 | 目标 / fixture | 断言 |
 |---|---|
@@ -725,7 +733,7 @@ git commit -m "feat: reject conflicting Codex configuration and source arguments
 
 ```sh
 go test ./internal/launch -run 'TestServiceCodex|TestMergeForeign' -count=1
-go test ./internal/cli -run 'TestForeignSources' -count=1
+go test ./internal/cli -run 'TestBinarySourceGuard|TestForeignSources' -count=1
 ```
 
 - [ ] **Step 3: 实现消费方接口与 CLI composer**
@@ -744,16 +752,16 @@ Codex 自己的普通根在原生扫描中只读一次；外来扫描不再重�
 
 ```sh
 go test ./internal/launch -count=1
-go test ./internal/cli -run 'TestForeignSources|TestIntegrationPhaseTwo' -count=1
+go test ./internal/cli -run 'TestBinarySourceGuard|TestForeignSources|TestIntegrationPhaseTwo' -count=1
 go test -short ./...
 ```
 
-Expected：全部 PASS；原生元数据不会被空 Names 的 foreign rejection 覆盖；测试环境新增的 Codex Home/CodexHome/配置/admin 根全部由 resolver 指向 fixture；Claude 的 name-only foreign fixture 仍可投影。
+Expected：可运行测试全部 PASS；Windows active binary 按 Step 1 在启动前 skip，none/help 与注入应用测试运行；Unix 仅在固定系统来源均不存在时运行 active binary，并记录实际执行/skip。原生元数据不会被空 Names 的 foreign rejection 覆盖；测试环境新增的 Codex Home/CodexHome/配置/admin 根全部由 resolver 指向 fixture；Claude 的 name-only foreign fixture 仍可投影。
 
 - [ ] **Step 5: 提交**
 
 ```sh
-git add internal/cli/sources.go internal/cli/sources_test.go internal/cli/root.go internal/cli/phase2_application_test.go internal/launch internal/skill/scan.go
+git add internal/cli/sources.go internal/cli/sources_test.go internal/cli/root.go internal/cli/phase2_application_test.go internal/cli/integration_test.go internal/cli/phase2_integration_test.go internal/launch internal/skill/scan.go
 git commit -m "feat: merge target-specific foreign sources during launch"
 ```
 
@@ -820,14 +828,14 @@ git commit -m "feat: expose Codex launches and agent-specific previews"
 
 - Create: `internal/cli/phase3_integration_test.go`、`internal/cli/phase3_application_test.go`。
 - Test: `internal/cli/phase2_integration_test.go`、`internal/cli/projection_test.go`、`internal/host/fs_windows_test.go`。
-- Modify: `internal/cli/integration_test.go`（二进制 fixture 的固定系统来源隔离前置检查）。
+- Test: `internal/cli/integration_test.go`（复用 Task 10 已交付的公共 binary guard，不在此 Task 首次补防护）。
 - Modify only if needed: 对应失败的业务文件，按失败用例限定修改。
 
 - [ ] **Step 1: 建立独立 fixture 与 fake-agent 启动链**
 
 复用 `testutil.BuildFakeAgent`、`BuildSkope`。完整测试在 `testing.Short()` 时跳过编译 helper；纯应用注入测试保持短测试可执行。每个 fixture 显式设置 HOME/USERPROFILE、CODEX_HOME、CLAUDE_CONFIG_DIR、SKOPE_HOME 和 cwd；不依赖真实用户的安装目录、认证、系统 admin skill。
 
-纯应用层注入临时 CodexPaths（Home、CodexHome、AdminSkillRoots、SystemConfigPaths）。Windows 生产 binary active E2E 在进入扫描前直接 skip，因为 HOME/USERPROFILE 不重定向 Known Folder，不能先尝试读取真实用户配置；none/help 和注入应用/FS 测试继续覆盖。生产二进制 E2E 的公共 fixture 先对当版所有无法用 HOME 重定向的系统来源入口做 Lstat；若存在，跳过该二进制 E2E 并说明需要隔离环境，绝不进入读取其内容。该前置检查同时覆盖 Claude 回归，因为新 foreign composer 也会接入 Codex admin 来源。CI 必须记录 Linux/macOS 隔离 E2E 实际执行且未跳过，Windows 明确记录 Known Folder 的生产 active skip 与注入替代覆盖；普通目录发现、admin 算法和错误分支用注入 FS 在所有平台测试。不能在 Windows 通过映射 `/etc` 假装验证 Unix admin。已有 helper 环境保留必要系统变量，处理 GOCOVERDIR 的现有规则不回退。
+纯应用层注入临时 CodexPaths（Home、CodexHome、AdminSkillRoots、SystemConfigPaths）；phase3 binary 测试复用 Task 10 已实现的 integrationFixture.run 及其 Windows/Unix guard，不能另建无防护运行入口。此 Task 负责扩展矩阵并核对 CI 证据：Linux/macOS 隔离 E2E 实际执行且未跳过，Windows 记录既有 Known Folder active skip，none/help 与注入应用/FS 替代覆盖实际执行。普通目录发现、admin 算法和错误分支用注入 FS 在所有平台测试，不能通过 Windows 映射 /etc 假装验证 Unix admin。已有 helper 保留必要系统变量，GOCOVERDIR 处理不回退。
 
 - [ ] **Step 2: 逐项写断言并确认失败可定位**
 
@@ -873,7 +881,7 @@ Expected：PASS；Windows 不运行依赖缺失 C 工具链的 race。平台 ski
 - [ ] **Step 5: 提交集成测试及必要修复**
 
 ```sh
-git add internal/cli/phase3_integration_test.go internal/cli/phase3_application_test.go internal/cli/integration_test.go
+git add internal/cli/phase3_integration_test.go internal/cli/phase3_application_test.go
 git commit -m "test: verify Codex isolation end to end with fake agents"
 ```
 
