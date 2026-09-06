@@ -490,25 +490,25 @@ Task 5 实施记录（2026-09-06）：新增只读 Catalog 与消费接口、静
 
 - Create: `internal/agent/codex/adapter.go`、`internal/agent/codex/inventory.go`、`internal/agent/codex/inventory_test.go`。
 
-- [ ] **Step 1: 写 inventory 行为测试**
+- [x] **Step 1: 写 inventory 行为测试**
 
 使用 fake scanner/catalog 验证：Name=Codex；Capabilities 为 false/true/true；普通根与 plugin 根合并；同 ID 多入口保留；plugin 有 PluginAgentCodex 和 PluginID；SkillNames 只含真实 Codex 可加载名称；缺失允许插件只告警一次；配置有键但未安装仍告警；已安装 disabled 项不报 missing；Options 和输出不与输入共享 map/slice。
 
 Catalog/scanner/context 任一失败则返回错误和空 inventory；不执行子进程。构造 New 本身不读取依赖，help/version 因此可安全注册。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/agent/codex -run 'TestCodexInventory|TestCodexCapabilities|TestCodexOptions' -count=1
 ```
 
-- [ ] **Step 3: 实现 inventory**
+- [x] **Step 3: 实现 inventory**
 
-按前文接口构造 Adapter，复制 Plugins；保存 ResolvePaths 函数。Inventory 先 ResolvePaths（失败不继续），再 Catalog.Read(ctx, env, paths) 校验 root-marker，再 ScanCodex(env, paths)，再扫描已验证 plugin SkillRoots；每个外部步骤之间检查 ctx。使用 `skill.Build` 合并 locations，生成 collisions；PluginIDs 来自 Snapshot，allowed-only ID 留给 Plan 的并集，不伪造 installed 状态。
+按前文接口构造 Adapter，复制 Plugins；保存 ResolvePaths 函数。Inventory 先 ResolvePaths（失败不继续），再 Catalog.Read(ctx, env, paths) 校验 root-marker，再 ScanCodex(env, paths)，再扫描已验证 plugin SkillRoots；每个外部步骤之间检查 ctx。使用 `skill.Merge` 合并扫描器 Skill，保留既有 ID 并生成 collisions；PluginIDs 来自 Snapshot，allowed-only ID 留给 Plan 的并集，不伪造 installed 状态。
 
 读取依赖不全时返回静态配置错误；不把 executable 或选择信息塞进 Env。此 Task 不注册到 CLI；Plan 在 Task 8 实现后再添加 `var _ agent.Adapter = Adapter{}`，避免中间提交因缺少 Plan 无法编译。
 
-- [ ] **Step 4: 运行绿灯**
+- [x] **Step 4: 运行绿灯**
 
 ```sh
 go test ./internal/agent/codex ./internal/agent/claude ./internal/skill -count=1
@@ -516,12 +516,14 @@ go test ./internal/agent/codex ./internal/agent/claude ./internal/skill -count=1
 
 Expected：全部 PASS；无跨 adapter import，六个冻结类型无 diff。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/agent/codex/adapter.go internal/agent/codex/inventory.go internal/agent/codex/inventory_test.go
 git commit -m "feat: build Codex native inventory with plugin visibility"
 ```
+
+Task 6 实施证据：定向测试先因缺少 codex.New/Options 编译失败；实现后 Windows 三包测试和全仓 go test -short ./... 通过。固定 golangci-lint v2.13.2 对新增三文件执行 gofmt/goimports，Codex 包 lint 为 0 issues；WSL Ubuntu 离线 go test -race ./internal/agent/codex -count=1 通过。覆盖逐阶段错误/取消空输出、依赖顺序、每个缺失依赖与非法插件 ID 的静态拒绝、原生/plugin 同 ID 合并、真实 Names 和 missing 告警、Options 与依赖输出切片/map 隔离。New 不访问依赖；Canonicalizer 仅保存留待 Task 8。仅使用 fake 依赖，不读取真实配置或执行 Codex。
 
 ### Task 7: 不支持投影时的原因与 canonical 别名告警
 
