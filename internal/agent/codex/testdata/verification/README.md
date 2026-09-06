@@ -77,6 +77,8 @@ unshare --user --map-root-user --mount --net python3 internal/agent/codex/testda
 
 脚本保存完整 argv、配置、skills/list（含 enabled/pluginId）、config/read（含 layers）、明确请求的 plugin/list/install/installed/uninstall 返回值。53 组 app-server 对照、3 组 debug prompt-input、features 帮助/默认/CLI false 三组命令均完成；核心结果有显式断言。原始证据在 `/var/tmp/skope-p3-catalog-3a_qkqmt`；每次重跑会创建另一个唯一目录。只提交 harness 和相邻 `catalog/` 最小 fixture，不提交数据库、系统 skill 正文或完整日志。
 
+审查后补强非空路径断言与 RPC 顶层 error 检查，同一 53+3+3 矩阵完整复验通过，结果在 `/var/tmp/skope-p3-catalog-e7vs43pt`。无效 frontmatter 的 `result.data[].errors` 仍作为预期业务结果保留。
+
 ```text
 fixture/
   home/.agents/skills/user/SKILL.md

@@ -58,6 +58,8 @@ def run(label, cwd=REPO, config="", overrides=(), requests=()):
             if message is None:
                 raise RuntimeError("".join(errors))
             if message.get("id") == identifier:
+                if "error" in message:
+                    raise RuntimeError(f"{label}: {method}: {message['error']}")
                 return message
     result = {"case": label, "cwd": str(cwd), "argv": argv, "config": config}
     try:
@@ -266,6 +268,8 @@ assert not plugin_rows("no-config-retained-cache")
 assert not plugin_rows("override-plugins.alpha@fixture.enabled")
 assert len(plugin_rows('override-plugins."alpha@fixture".enabled')) == 2
 assert len(plugin_rows("override-enable")) == 2
+for case in ("plugin-path-true", "version-order", "version-order-numeric", "version-local-priority"):
+    assert len(plugin_rows(case)) == 2
 assert all(s["enabled"] for s in plugin_rows("plugin-path-true"))
 assert all("/aaa/" in s["path"] for s in plugin_rows("version-order"))
 assert all("/10.0.0/" in s["path"] for s in plugin_rows("version-order-numeric"))
@@ -274,7 +278,10 @@ assert all("/local/" in s["path"] for s in plugin_rows("version-local-priority")
 for case in ("in-place-skill-dir", "in-place-off"):
     item = next(s for s in rows(case) if s["name"] == "dev:p3-dev")
     assert item["enabled"] and item.get("pluginId") is None
-assert all(not s["enabled"] for s in rows("automatic-path-off") if s["path"] in {str(p) for p in auto_paths})
+automatic_paths = {str(p.resolve()) for p in auto_paths}
+automatic_rows = [s for s in rows("automatic-path-off") if s["path"] in automatic_paths]
+assert {s["path"] for s in automatic_rows} == automatic_paths
+assert all(not s["enabled"] for s in automatic_rows)
 assert plugin_rows("untrusted-project")
 assert not plugin_rows("trusted-project")
 assert plugin_rows("trusted-cli-override")
@@ -286,7 +293,8 @@ assert not any("hidden" in s["name"] for s in rows("discovery-cwd"))
 assert all(r["exit"] == 0 for r in prompts)
 assert "alpha:p3-" in prompts[0]["stdout"] and "alpha:p3-" not in prompts[1]["stdout"] and "alpha:p3-" in prompts[2]["stdout"]
 for case, version in (("semver-prerelease", "3.0.0-alpha.10"), ("semver-release", "3.0.0"), ("semver-build", "3.0.0+10")):
-    assert plugin_rows(case) and all("/" + version + "/" in s["path"] for s in plugin_rows(case))
+    assert len(plugin_rows(case)) == 2
+    assert all("/" + version + "/" in s["path"] for s in plugin_rows(case))
 for case in ("bundled-user-name-deny", "bundled-user-path-deny"):
     assert not next(s for s in rows(case) if s["name"] == "imagegen")["enabled"]
 assert plugin_rows("remote-feature-off")
