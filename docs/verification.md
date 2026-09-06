@@ -9,7 +9,7 @@
 
 状态取值：`未验证` / `通过` / `不符（已修订 spec §x）`。
 
-## Claude（阻断 Phase 2）
+## Claude（Phase 2 前置验证）
 
 ### 第 3 条：`--add-dir` 投影 skill 可被 `skillOverrides` 打开
 
@@ -314,3 +314,95 @@ Skill "blocked" is disabled via skillOverrides. Remove the override from your se
 该命令退出码为 0，因此验证以明确拒绝信息及 blocked marker 缺失为准，不能仅依赖退出码。所有临时 fixture、bridge、输出和实验二进制已清理。
 
 本次 Phase 1 实验没有验证 projection 或 plugin 枚举，当时 §7.5 第 3、10 条保持「未验证」；后续状态以上方对应条目的独立实验记录为准。
+
+### Phase 2
+
+- 日期：2026-09-06；Tasks 1–16 的实现及逐任务 Spec/质量审查通过。Task 17 尚未全部关闭，最终构建的投影资源读取与允许插件模型复验被 provider 403 额度不足阻断。
+- 实现源码：`368f3ffda1cb68c09abd89a13bfb15e64debb2f6`；真实复验及独立 clone：`22fa1f6063dc37611ae14b693f5bc394e45fb460`。后者相对前者仅修改测试，未改变产品行为。
+- 冻结审计：对 `27d22be` 检查 `Skill`、`Location`、`Adapter`、`Capabilities`、`LaunchPlan`、`Inventory`，结构不变；`cmd/skope/main.go`、`go.mod`、`go.sum` 无 diff。depguard 通过。
+- 本地 Windows Go 1.27.1：`make check` 的 gofmt/vet/lint/test/build 全部通过，golangci-lint v2.13.2 为 0 issues。`go test -count=1 '-coverprofile=coverage.txt' ./...` 及 `go tool cover '-func=coverage.txt'` 通过，总 statements **88.3%**。
+- 包覆盖率：Claude 94.9%、CLI 92.1%、launch 95.3%、proc 90.9%、projection 93.7%、skill 95.4%、termsafe 100%。host 67.9%、session 79.7%；部分宿主包装、平台错误分支及子进程执行不计入当前进程覆盖率，未排除业务文件或补无意义 getter 测试抬高数字。
+- PR：[draft #2](https://github.com/HScarb/skill-scope/pull/2)。首轮 [run 34007742994](https://github.com/HScarb/skill-scope/actions/runs/34007742994) 暴露测试辅助进程缺少 GOCOVERDIR、Windows/macOS 路径别名、Windows os.Root symlink 错误差异及 macOS socket 路径过长。`16cc4c9` 与 `22fa1f6` 修复测试，保留安全拒绝、原内容不变、精确流长度和超时断言。
+- 第二轮 [run 34008029558](https://github.com/HScarb/skill-scope/actions/runs/34008029558)：Ubuntu/macOS race 与 build、lint 通过；Windows 的只读投影源快照测试失败。诊断提交 `d8b32f6` 的 [run 34008182531](https://github.com/HScarb/skill-scope/actions/runs/34008182531) 显示仅目录 mtime 从旧值变为子链接创建时间。本机 Junction overlay 重复复现后，`60e0456` 将测试的普通目录元数据改为只读句柄 Stat，保留路径、模式、mtime、正文的完整比较；修复后本机连续 50 次通过，WSL 真实 symlink host race 通过。上述 CI 四个 job 的 Go 实际版本均为 1.24.0。
+- 最终代码 [run 34008500885](https://github.com/HScarb/skill-scope/actions/runs/34008500885)（`60e0456`）全部通过：Ubuntu/macOS race+build、Windows test+build、lint。此时再次运行 Windows 全仓覆盖率测试通过，仍为 88.3%。相对真实验收产物 `22fa1f6`，只增加上述快照测试诊断及修复，生产文件不变。
+- 干净 clone：`git clone --no-local --branch codex/phase2-claude-completion /mnt/d/workspace/vibe/skill-scope /var/tmp/skope-phase2-final-01a070a2/source`，HEAD `22fa1f6`。WSL Go 1.27.1 的 `make check` 全通过；lint 首次缺两个 Linux 专用模块的本地缓存，补下载固定版本后通过，未改 go.mod/go.sum。
+- clone 内单独构建的绝对 `source/skope` 与 fakeagent 验证 `claude -s dev --dry-run`：仅一次精确 `plugin list --json`，1 native / 1 projected / 1 unavailable，插件一开一关、bundled 关闭，只列投影文件路径、不含正文、不创建 session。使用最小显式环境，probe 记录与之完全一致，clone 前后均干净；证据在 `/var/tmp/skope-phase2-clean-fixture-01a070a2/`。
+
+#### 真实 Claude：构建身份与隔离方式
+
+- Claude Code **2.1.259**；实际执行 Windows PE `D:/programs/scoop/apps/nodejs-lts/current/bin/node_modules/@anthropic-ai/claude-code/bin/claude.exe`。skope 在 WSL Ubuntu 的 ext4 运行。此实验验证 Windows Claude 读取设置与 skill 的行为；原生 Unix 进程交接以自动测试及 CI 为证据，Windows 最终 handoff 仍未交付。
+- `SKOPE_BUILD_COMMIT=22fa1f6063dc37611ae14b693f5bc394e45fb460`；从上述 Linux clone 构建 `SKOPE_EXE=/var/tmp/skope-phase2-final-01a070a2/skope`。`version` 为 `skope phase2-22fa1f6063dc37611ae14b693f5bc394e45fb460`；build info 为 Go 1.27.1、GOOS=linux、GOARCH=amd64、CGO_ENABLED=1、vcs.revision 同提交、vcs.modified=false。
+- 该产物 SHA-256：`aac65bf337763c3e48ede652ec168248ae8b63f0cd532666520534f8cfdbc9bc`。
+- 首次直接从 Windows worktree 进行 WSL 构建时，VCS stamp 误取主工作区 `27d22be`。该产物曾成功返回原生、投影资源和允许插件 marker，但最终验收不沿用此身份有歧义的产物；改用干净 clone 并先核对 build info 再复验。
+- Windows fixture 为 `C:/Users/j00466872/AppData/Local/Temp/skope-phase2-final-01a070a2`；下文 `$FIXTURE` 为其 `/mnt/c/...` 映射。临时 `bridge.py` 调用 PowerShell bridge，后者直接创建 Claude PE 子进程。probe 的 installPath/projectPath 转为 Linux 可读路径；launch 的 settings/add-dir 转为 Windows UNC 路径。桥接固定 fixture cwd，显式 UTF-8、stdin EOF、60 秒上限；路径转换只存在于实验脚本。
+- bridge 仅在进程内读取现有 provider 所需 env 值，注入实验 Claude 并替换输出中的具体凭据/URL；未保存或修改真实 settings/skills/hooks/plugins。模型命令使用较短 system prompt、Read 工具和 low effort 减少上下文，不禁用 skills/plugins，不宣称测试了默认完整 system prompt。
+
+```text
+Windows fixture/
+  home/.codex/skills/
+  home/.agents/skills/projected-check/
+    SKILL.md
+    references/marker.md
+  claude/skills/{native-check,blocked-check}/SKILL.md
+  claude/skills/{allowed-plugin,blocked-plugin}/
+    .claude-plugin/plugin.json
+    skills/check/SKILL.md
+  repo/.git/
+/var/tmp/skope-phase2-final-01a070a2/
+  source/                    # 干净 clone
+  skope                      # 上述绑定版本的产物
+  skope-home/config.toml
+  skope-home/skillsets.toml
+  skope-home/sessions/        # ext4，最后 dry-run 后为空
+```
+
+两个原生 skill 的 frontmatter name 等于目录名，正文要求输出 `SKOPE_NATIVE_CHECK_01a070a2` 或 `SKOPE_BLOCKED_CHECK_01a070a2`。两个自动 plugin 的 manifest 为 `{"name":"<目录名>","version":"1.0.0"}`；skill name=check，正文分别要求输出 `SKOPE_ALLOWED_PLUGIN_01a070a2` 或 `SKOPE_BLOCKED_PLUGIN_01a070a2`。投影 skill 使用上方第 3 条同样的不同 frontmatter 名和读取相对资源的指令；资源唯一内容为 `SKOPE_PROJECTED_RESOURCE_01a070a2` 加换行。
+
+config.toml 的 `agents.claude.command` 为 `/mnt/c/Users/j00466872/AppData/Local/Temp/skope-phase2-final-bridge.py`。skillsets.toml 完整内容：
+
+```toml
+version = 1
+[skillsets.phase2]
+skills = ["native-check", "projected-check"]
+bundled = false
+[skillsets.phase2.plugins]
+claude = ["allowed-plugin@skills-dir"]
+[skillsets.with-bundled]
+skills = ["native-check"]
+bundled = true
+```
+
+构建与复验命令（`go` 指本次 WSL Go 1.27.1；实际由临时 Python runner 顺序执行并分别收集输出）：
+
+```sh
+cd /var/tmp/skope-phase2-final-01a070a2/source
+SKOPE_BUILD_COMMIT=22fa1f6063dc37611ae14b693f5bc394e45fb460
+SKOPE_EXE=/var/tmp/skope-phase2-final-01a070a2/skope
+go build -ldflags "-X main.version=phase2-$SKOPE_BUILD_COMMIT" -o "$SKOPE_EXE" ./cmd/skope
+"$SKOPE_EXE" version
+go version -m "$SKOPE_EXE"
+sha256sum "$SKOPE_EXE"
+FIXTURE=/mnt/c/Users/j00466872/AppData/Local/Temp/skope-phase2-final-01a070a2
+export HOME="$FIXTURE/home" USERPROFILE="$FIXTURE/home"
+export CLAUDE_CONFIG_DIR="$FIXTURE/claude" CODEX_HOME="$FIXTURE/home/.codex"
+export SKOPE_HOME=/var/tmp/skope-phase2-final-01a070a2/skope-home
+cd "$FIXTURE/repo"
+for prompt in /native-check /projected-check /blocked-check /allowed-plugin:check /blocked-plugin:check; do
+  "$SKOPE_EXE" claude -s phase2 -- -p "$prompt" --max-turns 2 --verbose --output-format stream-json --system-prompt 'Follow the invoked skill instructions exactly.' --tools Read --allowedTools Read --effort low
+done
+"$SKOPE_EXE" claude -s with-bundled -- -p /blocked-check --max-turns 2 --verbose --output-format stream-json --system-prompt 'Follow the invoked skill instructions exactly.' --tools Read --allowedTools Read --effort low
+"$SKOPE_EXE" claude -s phase2 --dry-run
+```
+
+| 检查 | `22fa1f6` 产物的观察 |
+|---|---|
+| 原生允许项 | 退出 0，返回 `SKOPE_NATIVE_CHECK_01a070a2` |
+| 白名单初始化 | init.skills 为 native-check、projected-check、allowed-plugin:check、doctor；init.plugins 仅 allowed-plugin，path 为 fixture 的原地目录 |
+| 原生禁止项 | 退出 0，明确报告 `Skill "blocked-check" is disabled via skillOverrides...`；未返回 blocked marker |
+| 插件禁止项 | 退出 0，明确报告 `Unknown command: /blocked-plugin:check`；未返回 blocked marker |
+| bundled 开关 | false 时可选 bundled skills 消失、doctor 保留；true 时出现 verify、debug、simplify、batch、loop 等；未调用这些 bundled skills |
+| 投影资源/允许插件模型调用 | 重复实验遇 provider 403；早期输出又暴露桥接编码不一致，显式 UTF-8 修复后确认是 provider 额度不足。最终构建尚无成功 Read 结果和允许插件 marker，不以 init 或旧产物结果替代 |
+| session 生命周期 | 每次退出保留当前 session，下一次启动回收前次；最终 dry-run 退出 0，sessions 数量由 1 变 0 |
+| dry-run 配置 | blocked-check=off、native-check/projected-check=on；allowed-plugin=true、blocked-plugin=false；disableBundledSkills=true；只显示投影路径，不显示正文 |
+
+后续仅需在 provider 可用时，用上述绑定产物补跑 `/projected-check` 的实际 Read 工具结果及 `/allowed-plugin:check` 的 marker，再关闭 Task 17 真实验收项。检查当前 Windows fixture 与 skope-home 的 30 个文件，未发现现用 AUTH_TOKEN/API_KEY 值。实验脚本、无凭据 fixture、脱敏输出与 Linux 构建暂留，便于继续复验；不纳入产品提交。

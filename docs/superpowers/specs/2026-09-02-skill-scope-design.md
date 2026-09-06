@@ -88,6 +88,8 @@ Claude plugin 枚举依据为 2.1.259 的真实实验（`docs/verification.md` �
 
 外来 `SKILL.md` 在 frontmatter 解析前检查入口和打开句柄的文件类型，只打开普通文件，按 §8.3 的 20 MiB 限额有界读取（最多限额加 1 byte）。特殊文件及超限入口保留构建 ID 所需的 location 和结构化拒绝原因；Names 留空，不伪造 frontmatter 回退值，不记 missing。普通文件打开由注入接口完成，必须防止 FIFO 在打开阶段阻塞；真实 I/O 或 frontmatter 错误仍 fail-closed。
 
+Claude 原生与 plugin 的 `SKILL.md` 同样只读取普通文件；生产扫描器使用安全打开接口，特殊入口报清单错误，不等待 FIFO。原生入口不套用投影的 20 MiB 限额。Windows 的 Junction 由 host 层识别为链接候选并统一解析，兼容 Go 1.24 的 irregular 表示；允许 skill 入口 Junction，command 目录遍历仍跳过目录链接。
+
 ### 4.2 结构
 
 ```go
@@ -460,6 +462,7 @@ Windows 上正常退出立即清理；崩溃残留由回收兜底。Windows 不�
 - 环境变量值脱敏：键名（大小写不敏感）含 `token`、`key`、`secret`、`password`、`auth`、`header`、`credential` 的显示为 `<redacted>`；`OPENCODE_CONFIG_CONTENT` 只显示 skope 注入的键。
 - 冲突参数只打印参数名与来源。
 - 子进程 stderr 进入错误信息时截断到 2 KiB 并转义。
+- Cobra help 的未知主题和输出失败统一交由 CLI 安全错误出口处理，库不得直接退出进程。隐藏补全请求含终端控制字符时在进入 Cobra 前拒绝；合法补全协议保留。后续新增动态补全数据也必须遵守外部文本转义约束。
 
 ### 9.2 子进程契约
 

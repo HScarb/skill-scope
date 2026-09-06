@@ -12,7 +12,7 @@
 
 **Spec 对应：** `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §4.1/§4.4、§5.3、§6.2/§6.3/§6.6、§7.1/§7.5、§8.3、§9、§10、§11.1/§11.2、§14.2/§14.7。
 
-**执行状态：** 2026-09-05 Task 1/2 的真实 Claude 第 3、10 条门禁通过，实际偏差已修订 spec；证据见 `docs/verification.md`。Task 3–16 可进入实施。Task 2 最后一次模型调用遇 provider 403 额度不足，后续真实模型验收需恢复额度；已有 init 路径证据和此前成功的控制组保留。
+**执行状态：** 2026-09-06 Tasks 1–16 已实施并通过逐任务 Spec/质量审查；最终代码审查发现的非法投影 basename 已修复。Task 17 的本地门禁、88.3% 覆盖率、干净 clone 和 PR #2 的三平台 CI 全部通过。绑定 `22fa1f6` 的真实 Claude 初始化、原生调用、禁用项、bundled 和会话回收已验证，投影资源与允许插件的模型复验遇 provider 403 额度不足，Step 4 保留未完成。详细证据见 `docs/verification.md`。
 
 **审查修订（2026-09-05）：** Task 9/14/16 补外来入口读取前的类型检查、有界读取及拒绝原因传递；Task 10–12 补大小写冲突与投影文件禁止覆盖写入；Task 17 的真实验收绑定本次提交构建出的绝对路径。执行复选框按实际完成情况更新。
 
@@ -1331,6 +1331,10 @@ git commit -m "test: cover complete Claude isolation end to end"
 
 ### Task 17: 质量门禁、真实 Claude 验收与文档交付
 
+**收尾记录（2026-09-06）：** 冻结类型、main 和依赖文件对基线无改动。Windows worktree 与 Linux 独立 clone 的 `make check` 通过；Windows statements 覆盖率 88.3%。CI 首轮暴露覆盖率 helper 环境、跨平台路径身份、os.Root symlink 错误和 macOS socket 路径问题，`16cc4c9`、`22fa1f6` 仅修测试并通过双审查。独立 clone 验证前移至文档提交前，用于核实真实构建身份；Windows worktree 在 WSL 的 VCS stamp 误指主工作区，改为 Linux clone 构建后 `vcs.revision=22fa1f6`、`vcs.modified=false`。真实调用的实验桥接显式使用 UTF-8；provider 额度不足时停止模型复验，文档状态暂不写 complete，不以旧产物成功替代本次构建证据。
+
+**CI 快照修复：** `d8b32f6` 仅增加受控 fixture 的差异诊断，确认 Windows 目录枚举返回创建子项前的旧 mtime；本机 Junction overlay 重复复现后，`60e0456` 改为只读目录句柄 Stat 采集测试快照，保留全部模式、mtime、正文和路径比较。Windows 连续 50 次及 WSL host race 通过，生产 Inspector 不变。最终 [CI run 34008500885](https://github.com/HScarb/skill-scope/actions/runs/34008500885) 的 Ubuntu/macOS race+build、Windows test+build、lint 全绿。
+
 **最终审查 focused 修复（2026-09-06）：** Unix 允许外来目录名 `foo:bar`，原 Inspector 只检查根内资源路径，prepareProjection 因而误报 projected；直到 Preview/Stage 后创建 projectionFiles/Sink 才报非法目录名并中止整个启动。先新增 Windows 可运行的准备测试，以及 WSL 真实 foreign scan → Inspector → Service dry-run 测试，两者分别以 projected 状态错误和 `invalid projection directory name "foo:bar"` 确认红灯。现从 newProjectionSink 提取相同的纯目录名判断，候选检查成功后、登记目标名之前返回 invalid-path，不占目标名，不保存 Manifest，其他选中 skill 正常继续；scope ID `app:foo` 仍使用合法 basename `foo`，Inspector I/O 错误优先传播，Sink/Session 安全规则保持原样。Windows launch/projection/session/skill 全量测试、WSL 同四包 `-race -count=1`、局部 golangci-lint v2.13.2（0 issues）、gofmt/goimports 与 diff-check 通过。本修复不关闭 Task 17 其余验收步骤。
 
 **Files:**
@@ -1340,13 +1344,13 @@ git commit -m "test: cover complete Claude isolation end to end"
 - Modify: `docs/superpowers/plans/2026-09-05-phase2-claude-completion.md`（勾选、记录偏差）。
 - Modify only when needed: `docs/superpowers/specs/2026-09-02-skill-scope-design.md`。
 
-- [ ] **Step 1: 冻结类型与依赖审计**
+- [x] **Step 1: 冻结类型与依赖审计**
 
 对照基线 `27d22be` 检查六个冻结类型没有字段/方法变更，`cmd/skope/main.go` 无业务改动。检查 leaf 不 import agent，adapter 不 import cli/launch/其他 adapter，skill 核心不 import projection/os，根命令 help 不读取配置或执行 probe。
 
 若实现确需改变冻结结构，先回到 spec 修订流程；Phase 2 不修改 Adapter 接口。记录 Options、registry factory、外来扫描行前移、proc 平台文件等已批准设计补充，避免下一期重新推断。
 
-- [ ] **Step 2: 格式化与本地质量门禁**
+- [x] **Step 2: 格式化与本地质量门禁**
 
 ```sh
 gofmt -w internal/termsafe internal/proc internal/projection internal/agent/claude internal/skill internal/host internal/session internal/launch internal/cli internal/testutil
@@ -1360,7 +1364,7 @@ git status --short
 
 Windows 中 make 按 README 从 Git Bash 运行；PowerShell 覆盖率参数若有解析问题，整项用单引号。Expected：格式/vet/lint/test/build 全部退出 0；报告覆盖率与新增低覆盖业务分支。项目目标至少 80%，不能用排除业务文件或无意义 getter 测试抬数字。检查格式化 diff，仅保留本期必要改动。
 
-- [ ] **Step 3: 创建/更新 PR 并确认 CI**
+- [x] **Step 3: 创建/更新 PR 并确认 CI**
 
 按会话授权推送功能分支并建立以 main 为 base 的 PR，描述行为、spec 范围、验证命令和 Windows 边界。当前 CI 的 push 只监听 main，功能分支通过 pull_request 触发。确认 Ubuntu/macOS race、Windows test/build、lint 全绿并记录 run URL；只 push 分支不能称 CI 已验证。
 
@@ -1394,27 +1398,27 @@ cd "$FIXTURE/repo"
 
 若只能使用 WSL→Windows bridge，`SKOPE_EXE` 必须是在 WSL 中从本次提交构建的 Linux 产物；bridge 只作为配置中的 Claude command。桥接需要为探测返回可读、可转换的安装路径，并转换 settings/add-dir；任何路径重写都记录为实验桥接限制，不写进产品实现。原生 Unix probe/handoff 仍以 CI 为证据；真实 Claude 能力结论明确标注宿主平台。
 
-- [ ] **Step 5: 更新用户文档与实施记录**
+- [x] **Step 5: 更新用户文档与实施记录**
 
-README 状态改为 Phase 2 complete，并给一个 `plugins.claude` + bundled + foreign skill 示例。明确：
+全部门禁通过后将 README 状态改为 Phase 2 complete；当前明确标注真实模型复验未完成。已给出 `plugins.claude` + bundled + foreign skill 示例。明确：
 
 - plugin 允许是整体 plugin；不会由 skills 中出现某个 ID 自动开启。
 - 本期外来来源只有两条已前移的全局行；其他来源仍属后续阶段。
 - 投影目标按保守规则拒绝大小写别名；`Foo`/`foo` 在所有平台都不能同时投影，文件写入不覆盖已有内容。
-- dry-run 会执行一次 plugin list 和来源检查、可能回收旧会话，但不创建新会话。
+- 活动 skill set 的 dry-run 会执行一次 plugin list 和来源检查；none 仅预览透传启动。两者都可能回收旧会话，但不创建新会话。
 - Windows 最终 handoff、`.cmd` 垫片仍未交付；TTY 选择器和管理向导仍待 Phase 5。
 - 投影权限固定为 0600/0700；Windows 使用用户目录默认 DACL，不能把 POSIX mode 当作 Windows ACL 验证。
 
 docs/verification.md 追加真实与自动证据，计划记录实施偏差；没有证据的步骤保持未勾选。
 
-- [ ] **Step 6: 提交交付文档**
+- [x] **Step 6: 提交交付文档**
 
 ```sh
-git add README.md docs/verification.md docs/superpowers/plans/2026-09-05-phase2-claude-completion.md
-git commit -m "docs: close Phase 2 after Claude integration verification"
+git add README.md docs/verification.md docs/superpowers/plans/2026-09-05-phase2-claude-completion.md docs/superpowers/specs/2026-09-02-skill-scope-design.md
+git commit -m "docs: record Phase 2 implementation and verification status"
 ```
 
-- [ ] **Step 7: 干净 clone 验证**
+- [x] **Step 7: 干净 clone 验证**
 
 从已提交版本建立一次性 clone，运行 make check 与包含 fake plugin probe、foreign projection 的 dry-run fixture；在 clone 中重新绑定其构建产物的绝对路径，不沿用原 worktree 的 SKOPE_EXE。确认不依赖工作区未跟踪文件；不提交 coverage.txt、二进制、dist、临时输出或 AGENTS.md。Windows 清理前核验绝对目标确实是本次临时 clone，使用同一 PowerShell 的 `Remove-Item -LiteralPath`；不要跨 shell 拼装删除命令。
 
