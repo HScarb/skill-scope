@@ -1021,6 +1021,17 @@ git status --short
 
 若 spec 有实际修订，显式加入。临时 clone/fixture 删除前核对其绝对路径确属本次创建范围；Windows 使用同一 PowerShell 的 `Remove-Item -LiteralPath`，不跨 shell 拼装删除。用户未跟踪 AGENTS.md 留在原位。
 
+**2026-09-06 Task 13 实施记录（待独立复审后关闭）：**
+
+- Windows Go 1.27.1 的 make check 全通过，固定 lint 2.13.2 为 0 issues；最终 fresh coverage 总 88.5%，Codex 89.1%。冻结六类型、main、go.mod/go.sum 相对 b329857 无 diff。
+- CI 新增 exact TestIntegrationPhaseThreeBinaryIsolationAndReaping JSON 断言：Unix 必须 pass 且非 skip。PR #3 的 13a7ba4 和修复后的 ed39e41 三平台 CI 全绿；Ubuntu/macOS active 明确实际执行。Task 12 Step 1 的平台证据已补齐，最终勾选仍随独立最终复审关闭。
+- 首轮 CI 暴露 Go 1.24 MapFS 的悬空链接 ReadDir 不支持，e4fb1e8 显式模拟宿主 fs.ErrNotExist，原断言保留；未修改产品扫描器。
+- 独立 Linux clone `/var/tmp/skope-phase3-final-task13-source` 在 ed39e41 make check 全通过；host/codex/cli fresh race 通过。离线固定 tool cache 通过进程级 file:// GOPROXY 与 GOSUMDB=off 使用，未改用户配置或依赖。
+- 最终只读 review 的 Important 为 CODEX_HOME TrimSpace/Clean 与真实 handoff 原环境不一致。新增单元测试先红；旧 13a7ba4 真实产物在尾空格反例中漏禁 skill。ed39e41 保留非空原值、拒绝纯空白相对路径，并在 Clean 前拒绝平台 home/CODEX_HOME 的 `..` 段；spec 和 Task 4 的旧 trim 约定同步修订。
+- 重新绑定 `SKOPE_EXE=/var/tmp/skope-phase3-build-Ojbcft/skope`，version/vcs=ed39e41fab769d30fb5654c11aef189cb748e9be、modified=false；SHA-256 7ded09b187d656854b6f88894bf789fa51afc3a420744d5338afda67f6a7dcd3。真实 Codex 0.153.1 的扩展 23 case 全通过，21 个配置/来源文件字节和固定旧 mtime 不变，最终 session=0；fixture `/var/tmp/skope-phase3-acceptance-mndx7ya1`。
+- 完整 harness 已提交，/proc 同 PID 的真实 exe/argv 与 prompt 加载记录均可复核；无认证、无模型调用，全部在私有 user/mount/net namespace。README 和 docs/verification.md 已记录本地支持边界、CODEX_HOME 修复和两次 Known Folder 意外来源发现的处置。
+- 修复后的独立复审、Task 13 Spec/质量审查尚待主控恢复后安排；因此 Task 12 Step 1、Task 13 和 Phase 3 complete 尚不勾选。证据目录保留供复核，不清理其他会话工具或 worktree。交付文档可先提交，不能将其当作复审已通过。
+
 ## 验收对应表
 
 | 契约 / 风险 | Task | 证据 |
@@ -1054,4 +1065,4 @@ git status --short
 - 官方 skills 文档说明 `.agents/skills` 从 cwd 向上到 repo root、用户/admin 来源、symlink 支持，并给出指向 `SKILL.md` 的禁用示例；不足以证实旧 `.codex/skills` 与缓存布局。[Build skills](https://learn.chatgpt.com/docs/build-skills)。
 - 官方高级配置文档说明 `-c` 值按 TOML 解释、CODEX_HOME 存放配置/状态、项目配置按层读取；文档还说明较新 CLI 的 profile 使用独立文件，不能沿用旧 `[profiles.*]` 假设。[Advanced Configuration](https://learn.chatgpt.com/docs/config-file/config-advanced)。
 - 官方 plugin 页面说明 plugin 可提供多类能力，但没有给出足以替代 Task 2 的版本固定安装索引契约。[Plugins](https://learn.chatgpt.com/docs/plugins)。
-- 上述为最初规划参考；Task 1–2 已记录 CLI 0.153.1 真实本地观察，Task 3 已写回最终契约；后续实现与真实 skope 验收仍待执行。
+- 上述为最初规划参考；Task 1–2 已记录 CLI 0.153.1 真实本地观察，Task 3 已写回最终契约；实施与真实 skope 验收见各 Task 实施记录；最终关闭仍须独立复审。
