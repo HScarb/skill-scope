@@ -812,7 +812,7 @@ git commit -m "feat: merge target-specific foreign sources during launch"
 - Create: `internal/cli/codex_application_test.go`。
 - Create: `internal/cli/testdata/codex-summary.golden.txt`、`internal/cli/testdata/codex-dry-run.golden.txt`。
 
-- [ ] **Step 1: 写命令与输出测试**
+- [x] **Step 1: 写命令与输出测试**
 
 `skope --help` 列出 codex；`skope help codex` 返回帮助且不 Snapshot/read/probe；`skope codex -s none -- --help` 原样进入 agent；无 set 保持现有错误。completion 增加 codex，不引入 TTY 选择器。
 
@@ -830,13 +830,13 @@ git commit -m "feat: merge target-specific foreign sources during launch"
 
 计数必须从同一真实 Codex Adapter.Plan 交叉核对：plugins 行等于实际写入 true/false 的数量；不复用带 Claude 依赖提示的整行。dry-run 断言 Files 仅 owner.json、无生成 settings 文件和投影正文、无继承环境或用户 config 内容，argv 中 `-c` 的 TOML 内容完整显示且只在展示时转义。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/cli -run 'TestCodexApplication|TestCodexOutput|TestRoot|TestCompletion' -count=1
 ```
 
-- [ ] **Step 3: 装配入口和渲染**
+- [x] **Step 3: 装配入口和渲染**
 
 root 添加 `newLaunchCmd(skill.AgentCodex, runLaunch)`。NewRegistry 显式注册 claude.New 和 codex.New；claude.Options 只接 selection.Plugins["claude"]，codex.Options 只接 ["codex"]，Bundled 共用并集结果。未调用的 adapter 不进行任何读文件/探测。
 
@@ -844,7 +844,7 @@ reportResolution 从 result.Resolved.Agent 获取目标；只有 Claude 输出�
 
 保留 summarizePlugins 的集合算法；用真实 Plan 解码后的插件数量测试它，而不另设不同计数逻辑。根帮助与 version 的安全输出、writer 失败传播、隐藏 completion 控制字符拒绝均沿用原路径。
 
-- [ ] **Step 4: 运行绿灯和 CLI 回归**
+- [x] **Step 4: 运行绿灯和 CLI 回归**
 
 ```sh
 go test ./internal/cli -count=1
@@ -854,12 +854,19 @@ go run ./cmd/skope help codex
 
 Expected：CLI tests 全 PASS，帮助出现 Codex；两条帮助命令不读取真实 agent 配置、不启动 agent。不运行未隔离真实用户来源的 active dry-run 作测试。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/cli/root.go internal/cli/root_test.go internal/cli/completion_test.go internal/cli/render.go internal/cli/render_test.go internal/cli/codex_application_test.go internal/cli/testdata/codex-summary.golden.txt internal/cli/testdata/codex-dry-run.golden.txt
 git commit -m "feat: expose Codex launches and agent-specific previews"
 ```
+
+**2026-09-06 Task 11 实施记录：** 注册 Codex 命令，生产请求级 registry 显式构造两个 adapter，分别传递对应 plugins 集合与共同 bundled；Codex 接只读 Catalog、OS canonicalizer 与 ResolveCodexPaths。摘要按 Resolved.Agent 显示 plugin-disabled 原因，仅 Claude 保留依赖提示；原 summarizePlugins 集合算法与 Claude golden 未变。
+
+- 红灯：新增命令/真实 Plan 输出测试首先因根帮助缺 Codex、unknown command codex 失败；接线后通过。Codex golden 包含真实 canonical 路径开关、4 对 TOML 参数、1 allowed/2 disabled 与 Plan 插件表交叉验证、仅 owner.json 文件列表。终端控制、Unicode 生成路径、argv 不变与各行 writer 失败均覆盖。
+- 注入 App + Service + OSFS 的 active/dry 测试实际执行，临时 Home/CodexHome/admin/config 路径完全隔离；验证多 set plugins.codex 并集与 bundled、Claude metadata/probe 不执行、foreign 不支持投影、none 不创建 registry、不读损坏 skillsets/Codex metadata，以及无 set 原错误。
+- 首次 Windows 全 CLI 运行暴露旧 TestProductionLaunchProjectsDiscoveryLinkWithFakeProbe 直接生产装配的隔离缺口：Known Folder 不受 Env 快照替代，意外访问用户技能来源并因 metadata 错误失败。未记录用户技能正文。修复限定 internal/cli/projection_test.go，在创建 fixture 前 Windows skip，Unix 仅 Lstat 两个固定系统入口，存在 skip、其他 I/O 错误失败；政策与 Task 10 公共 guard 一致，未修改生产路径解析或现有注入测试。
+- 修复后 Windows go test ./internal/cli -count=1、go test -short ./...、两条 skope help 命令通过；WSL go test -race ./internal/cli ./internal/launch -count=1 通过。golangci-lint v2.13.2 的限定文件 gofmt/goimports 与全量 lint（0 issues）通过。Windows Known Folder active binary/该旧生产装配测试明确 skip，新增隔离应用测试不跳过；未运行真实用户 active launch。
 
 ### Task 12: fake agent 端到端、输出保密与回归矩阵
 
