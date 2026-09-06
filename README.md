@@ -29,8 +29,10 @@ codex = ["my-plugin@my-marketplace"]
 ```
 
 For example, `code-review` can live at `~/.claude/skills/code-review/SKILL.md`
-and `team-check` at `~/.agents/skills/team-check/SKILL.md`. Replace the plugin ID
-with an installed ID from `claude plugin list --json`, or omit the plugins table.
+and `team-check` at `~/.agents/skills/team-check/SKILL.md`. For `plugins.claude`,
+use an installed ID from `claude plugin list --json`. For `plugins.codex`, use a
+local installed `plugin@marketplace` ID from Codex config/cache as described below.
+Omit either agent entry when it is not needed.
 Allowing a plugin enables the whole plugin. Selecting a skill ID alone does not
 enable its plugin; plugin dependencies may be enabled by Claude itself.
 Claude may also install a missing plugin that the allowlist enables.
@@ -47,9 +49,9 @@ skope codex -s none
 skope help codex
 ```
 
-Place skope options before Claude arguments; `--` explicitly starts passthrough.
+Place skope options before agent arguments; `--` explicitly starts passthrough.
 Skill sets can be combined with `-s dev,other`. An explicit set is currently
-required even in an interactive terminal; `none` keeps Claude's normal
+required even in an interactive terminal; `none` keeps the target agent's normal
 configuration. The interactive selector is planned for Phase 5.
 
 For an isolated launch, skope rejects `--settings`, `--setting-sources`,
@@ -103,11 +105,11 @@ Unix CI explicitly checks that active binary integration passes without skipping
 
 ## Projection and previews
 
-Claude can project eligible Codex global, cwd-to-repository project, Unix admin,
-and locally installed plugin skills discovered by the Codex scanner. It also
-considers `~/.agents/skills` and `$CODEX_HOME/skills` (default `~/.codex/skills`).
-Codex plugin identity is retained, so a disabled plugin cannot become an ordinary
-foreign candidate. Complete non-target Claude plugin enumeration and authenticated
+Claude can project eligible ordinary Codex skills from global, cwd-to-repository
+project, and Unix admin roots, including `~/.agents/skills` and `$CODEX_HOME/skills`
+(default `~/.codex/skills`). Locally installed Codex plugin skills are enumerated
+with their plugin identity retained; they are reported as unavailable/plugin-only
+for Claude and cannot be projected, regardless of whether the plugin is allowed. Complete non-target Claude plugin enumeration and authenticated
 remote plugin management remain Phase 5. Native Claude entries take precedence;
 eligible foreign skills are copied into the temporary session and loaded with
 `--add-dir`.
@@ -124,8 +126,8 @@ eligible foreign skills are copied into the temporary session and loaded with
 - Sources are checked again during copying. These checks are not a filesystem
   snapshot and cannot guarantee detection of changes after the final check.
 
-With an active skill set, `--dry-run` executes one plugin-list probe and performs
-source and projection checks. `-s none --dry-run` only previews the passthrough
+For Claude with an active skill set, `--dry-run` executes one plugin-list probe
+and performs source and projection checks. `-s none --dry-run` only previews the passthrough
 launch. Both may reap finished sessions, but create no new session. The preview
 shows the final arguments, generated settings, and relative session file paths;
 it omits copied file bodies and the inherited environment. Displayed environment
