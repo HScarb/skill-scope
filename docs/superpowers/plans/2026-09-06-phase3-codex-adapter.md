@@ -873,6 +873,7 @@ git commit -m "feat: expose Codex launches and agent-specific previews"
 **Files:**
 
 - Create: `internal/cli/phase3_integration_test.go`、`internal/cli/phase3_application_test.go`。
+- Modify: `internal/testutil/fakeagent/main.go`（记录 PID，核对 Unix exec 后 fake 进程与 session owner 身份）。
 - Test: `internal/cli/phase2_integration_test.go`、`internal/cli/projection_test.go`、`internal/host/fs_windows_test.go`。
 - Test: `internal/cli/integration_test.go`（复用 Task 10 已交付的公共 binary guard，不在此 Task 首次补防护）。
 - Modify only if needed: 对应失败的业务文件，按失败用例限定修改。
@@ -883,7 +884,7 @@ git commit -m "feat: expose Codex launches and agent-specific previews"
 
 纯应用层注入临时 CodexPaths（Home、CodexHome、AdminSkillRoots、SystemConfigPaths）；phase3 binary 测试复用 Task 10 已实现的 integrationFixture.run 及其 Windows/Unix guard，不能另建无防护运行入口。此 Task 负责扩展矩阵并核对 CI 证据：Linux/macOS 隔离 E2E 实际执行且未跳过，Windows 记录既有 Known Folder active skip，none/help 与注入应用/FS 替代覆盖实际执行。普通目录发现、admin 算法和错误分支用注入 FS 在所有平台测试，不能通过 Windows 映射 /etc 假装验证 Unix admin。已有 helper 保留必要系统变量，GOCOVERDIR 处理不回退。
 
-- [ ] **Step 2: 逐项写断言并确认失败可定位**
+- [x] **Step 2: 逐项写断言并确认失败可定位**
 
 | 场景 | 必须断言的可观察结果 |
 |---|---|
@@ -901,7 +902,7 @@ git commit -m "feat: expose Codex launches and agent-specific previews"
 | SECRET_SENTINEL 与控制字符 | config/解析错误不泄漏正文；只显示生成控制值，终端字符转义 |
 | Claude 回归 | 原 settings/plugin probe/投影完整；Codex 新外来根元数据和拒绝理由正确 |
 
-- [ ] **Step 3: 运行端到端并修复真实失败**
+- [x] **Step 3: 运行端到端并修复真实失败**
 
 ```sh
 go test ./internal/cli -run 'TestIntegrationPhaseThree' -count=1 -timeout 180s
@@ -910,7 +911,7 @@ go test ./internal/cli -run 'TestIntegrationPhaseTwo' -count=1 -timeout 180s
 
 Expected：PASS。仅假 agent 证明 argv/env/cwd/会话行为，不把它描述为 Codex 接受 TOML 或执行隔离的证据。新增 bug 先保留失败测试，再修最小范围，禁止放宽安全断言换取通过。
 
-- [ ] **Step 4: 运行相关包和 Unix race**
+- [x] **Step 4: 运行相关包和 Unix race**
 
 ```sh
 go test ./internal/agent/codex ./internal/skill ./internal/launch ./internal/cli -count=1
@@ -924,7 +925,7 @@ go test -race ./internal/agent/codex ./internal/skill ./internal/launch ./intern
 
 Expected：PASS；Windows 不运行依赖缺失 C 工具链的 race。平台 skip 包括 Task 10 公共 binary 来源 guard（Windows active 含 dry-run 在启动前 skip；Unix 固定系统来源存在时 skip，Lstat 其他错误失败），以及确实无法构造的链接或最终 handoff；none/help、注入应用测试和纯算法/解析矩阵继续执行。
 
-- [ ] **Step 5: 提交集成测试及必要修复**
+- [x] **Step 5: 提交集成测试及必要修复**
 
 ```sh
 git add internal/cli/phase3_integration_test.go internal/cli/phase3_application_test.go
@@ -932,6 +933,14 @@ git commit -m "test: verify Codex isolation end to end with fake agents"
 ```
 
 如有业务修复单独显式 stage，保持测试与对应修复可追溯。
+
+**2026-09-06 Task 12 实施记录：** 两个新测试文件建立真实 skope + fakeagent 和不编译二进制的应用 fixture；后者显式注入临时 Home/CodexHome/admin/system/cwd、进程身份与 handoff，Windows `-short -v` 中六个应用测试组均实际 PASS。binary 仍只经过原 `integrationFixture.run` guard；未修改 guard、入口、冻结类型或业务实现。fakeagent 新增 PID 观测，不改变 argv/env/cwd 记录及退出行为。
+
+- 矩阵覆盖同 ID 多 native 路径、不同 ID 同名隔离、用户旧 path/name deny 的显式 true、原先关闭但本次允许的 plugin 全部 skills、禁止及缺失 plugin、四状态逐项与计数、全选/空 set/空全集、bundled true/false、remote=false、参数顺序与跨来源冲突、none 旁路及坏 skope config、保密与终端转义、dry-run 文件快照、owner-only、canonical alias OR 警告及扫描后 retarget 清理。Claude 应用通过真实 Catalog 与投影覆盖 Codex project/admin 根和 plugin-only 拒绝，原 Phase 2 二进制回归保持原断言。
+- 首轮新增测试失败来自 fixture 沿用 Claude 的无 description 文档及 bundled 默认 true，与 Codex 契约不匹配；修正 fixture 后通过。没有发现或修复产品 bug，不把 fixture 修正描述为产品红绿证据。固定 lint 发现并修正测试变量名、resolver 错误返回及 bundled 单向覆盖，最终 0 issues。
+- Windows：`go test ./internal/cli -run TestIntegrationPhaseThree -count=1 -timeout 180s -v`、`go test ./internal/cli -run TestIntegrationPhaseTwo -count=1 -timeout 180s`、四相关包与 `./internal/testutil/...` 完整测试、`go test -short ./... -count=1 -timeout 180s` 通过。Phase 3 binary help/dry-none 实际 PASS；active、active dry-run 来源 guard、Unix handoff 用例跳过。注入应用 active/dry-run、真实 Junction/retarget 均实际执行。
+- WSL Ubuntu：Phase 3 `-v` 全组实际 PASS、无 skip，真实 fakeagent PID 等于 owner PID、退出码 23 原样保留、仅 owner.json、下一次 dry-run 回收。`go test -race ./internal/agent/codex ./internal/skill ./internal/launch ./internal/cli ./internal/testutil/... -count=1 -timeout 180s` 通过，包含原 Phase 2 回归。使用既有离线 Go runtime/GOPATH，未调用真实 Codex CLI、认证或模型。
+- 只对三个实际改动 Go 文件运行固定 `golangci-lint@v2.13.2 fmt`，`run ./internal/cli/... ./internal/testutil/...` 通过。Step 1 本地 fixture 工作完成；其 macOS 实际运行及同提交 CI 链接尚未验证，保留未勾选，交由 Task 13 在 PR CI 收集。fakeagent 仅证明生成参数与生命周期，实际 Codex 配置覆盖效果仍待 Task 13。
 
 ### Task 13: 质量门禁、真实 Codex 验收与交付文档
 
