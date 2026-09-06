@@ -28,7 +28,17 @@ func TestProjectionRootSpecialFilesNeverBlock(t *testing.T) {
 	}
 	for _, kind := range []string{"fifo", "socket"} {
 		t.Run(kind, func(t *testing.T) {
-			dir := t.TempDir()
+			// t.TempDir includes this long test name, exceeding macOS's Unix
+			// socket path limit under its default temporary directory.
+			dir, err := os.MkdirTemp("", "skope-proj-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Error(err)
+				}
+			})
 			name := filepath.Join(dir, kind)
 			if kind == "fifo" {
 				if err := unix.Mkfifo(name, 0600); err != nil {

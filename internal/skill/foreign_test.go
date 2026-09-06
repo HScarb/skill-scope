@@ -314,6 +314,10 @@ func TestScanForeignGlobalsPreservesLinkedDiscoveryPaths(t *testing.T) {
 	mustSymlink(t, target, filepath.Join(root, "first"))
 	mustSymlink(t, target, filepath.Join(root, "second"))
 	fsys := host.OSFileSystem{}
+	wantFile, err := os.Stat(filepath.Join(target, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := (skill.Scanner{FS: fsys, RegularFiles: fsys}).ScanForeignGlobals(host.NewEnv(home, home, map[string]string{"CODEX_HOME": filepath.Join(home, ".agents")}), 100)
 	if err != nil {
 		t.Fatal(err)
@@ -326,8 +330,12 @@ func TestScanForeignGlobalsPreservesLinkedDiscoveryPaths(t *testing.T) {
 			t.Fatalf("locations=%#v", candidate.Locations)
 		}
 		for _, loc := range candidate.Locations {
-			if loc.DiscoveryPath != filepath.ToSlash(filepath.Join(root, candidate.ID, "SKILL.md")) || loc.RealPath != filepath.ToSlash(filepath.Join(target, "SKILL.md")) {
+			if loc.DiscoveryPath != filepath.ToSlash(filepath.Join(root, candidate.ID, "SKILL.md")) {
 				t.Fatalf("location=%#v", loc)
+			}
+			gotFile, err := os.Stat(filepath.FromSlash(loc.RealPath))
+			if err != nil || !os.SameFile(wantFile, gotFile) {
+				t.Fatalf("resolved file differs: location=%#v error=%v", loc, err)
 			}
 		}
 	}

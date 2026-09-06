@@ -76,8 +76,13 @@ func TestSessionProjectionWritesRejectFinalSymlinkWithoutChangingTarget(t *testi
 		t.Fatal(err)
 	}
 	err = sess.WriteNewFiles([]session.File{{Path: filepath.Join(sess.Root, "link"), Data: []byte("overwrite")}})
-	if !errors.Is(err, fs.ErrExist) {
-		t.Fatalf("symlink error=%v", err)
+	// os.Root may reject the link before exclusive creation on Windows.
+	if err == nil {
+		t.Fatal("write accepted an existing symlink")
+	}
+	info, err := os.Lstat(link)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink changed: info=%v error=%v", info, err)
 	}
 	data, err := os.ReadFile(target)
 	if err != nil || string(data) != "keep" {
