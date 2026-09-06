@@ -78,7 +78,7 @@ def run(label, overrides=(), config="", prefix=()):
         send({"id": 3, "method": "config/read", "params": {"cwd": str(REPO), "includeLayers": True}})
         result["effective_config"] = response(3)
     except Exception as error:
-        result["failure"] = str(error)
+        result["failure"] = f"{type(error).__name__}: {error}"
     finally:
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)
