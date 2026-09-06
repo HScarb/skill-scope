@@ -66,3 +66,75 @@ EXE -p fixture debug prompt-input "fixture prompt" -c 'skills.config=[{path=ALLO
 最初固定的 Windows 二进制为 `C:/Users/j00466872/AppData/Local/OpenAI/Codex/bin/1e3e57cdf0634c02/codex.exe`，版本同为 0.153.1。它在重定向 HOME/USERPROFILE 后仍用系统 Known Folder 枚举真实 .agents/skills；该只读意外发现未用于门禁，随后停止 Windows 实验。脚本因此拒绝 Windows 执行，不能把过滤输出声称为来源隔离。Linux 对照没有 fixture 外 skill；Unix /etc/codex/config.toml 的实际层为空。
 
 结论：路径控制成立；原「用 CLI 新数组清除 User deny」假设不成立，须显式输出普通路径全集的 true/false，spec §7.2 已按证据修订。plugin ID 与来源发现交给 Task 2，不能据此关闭完整第 9 条门禁。
+
+## Task 2：发现范围与本地 plugin 元数据
+
+版本、SHA-256 与上文相同。最终矩阵使用独立 user、mount、network namespace；`/etc` 先挂载私有 tmpfs，退出自动消失。未写宿主 `/etc/codex`；子进程不具备外部网络、认证、MCP 或 hooks，未调用模型。
+
+```sh
+unshare --user --map-root-user --mount --net python3 internal/agent/codex/testdata/verification/discovery_plugins.py /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl --private-admin
+```
+
+脚本保存完整 argv、配置、skills/list（含 enabled/pluginId）、config/read（含 layers）、明确请求的 plugin/list/install/installed/uninstall 返回值。53 组 app-server 对照、3 组 debug prompt-input、features 帮助/默认/CLI false 三组命令均完成；核心结果有显式断言。原始证据在 `/var/tmp/skope-p3-catalog-3a_qkqmt`；每次重跑会创建另一个唯一目录。只提交 harness 和相邻 `catalog/` 最小 fixture，不提交数据库、系统 skill 正文或完整日志。
+
+```text
+fixture/
+  home/.agents/skills/user/SKILL.md
+  codex/skills/legacy/SKILL.md
+  repo/.git/
+  repo/.agents/skills/root/SKILL.md
+  repo/.codex/skills/old-root/SKILL.md
+  repo/apps/.agents/skills/parent/SKILL.md
+  repo/apps/api/.agents/skills/cwd/SKILL.md
+  repo/apps/api/.codex/skills/old-cwd/SKILL.md
+  repo/apps/web/.agents/skills/sibling/SKILL.md
+  repo/apps/api/deeper/.agents/skills/descendant/SKILL.md
+  home/.agents/plugins/marketplace.json
+  home/plugins/{alpha,beta,candidate}/.codex-plugin/plugin.json
+  codex/plugins/cache/fixture/{alpha,beta}/<version>/
+  codex/{config.toml,fixture.config.toml}
+  repo/.codex/config.toml
+  results.json  prompts.json  features.json  assertions-passed.txt
+private-namespace:/etc/codex/{config.toml,skills/admin/SKILL.md}
+```
+
+每个 skills 根还包含 group/nested、.hidden、container/SKILL.md 与 container/child/SKILL.md、两个同 name 不同 basename、skill symlink 与中间目录 symlink。SKILL.md 只有唯一测试名、description 和 marker。自动命名空间实验在每个根放置 auto-<root>/.codex-plugin/plugin.json，manifest.name 与 basename 不同，并同时放根 SKILL.md 与 skills/one/SKILL.md。
+
+| 对照 | 真实结果 |
+|---|---|
+| repo 根 cwd | 全局两个根、repo 的 .agents/skills 与 .codex/skills |
+| apps/api cwd | 再加 apps 与 apps/api 的两个兼容根；没有 sibling/descendant |
+| 无 .git 的 apps/api cwd | 仅 cwd 两个根与全局根；不扫祖先 |
+| skills 根内部 | 递归；已有 SKILL.md 的目录仍继续扫描子目录；隐藏目录不加载；链接文件目标 canonical 去重 |
+| symlink 指回 skills 根 | 请求完成且无重复；不据此推测内部深度/visited 实现 |
+| frontmatter 缺 name / 缺 description 或无 frontmatter | 缺name用目录basename；后两种返回errors且不加载 |
+| /etc/codex/skills | scope=admin；仅在私有 tmpfs 实验 |
+| 本地 install alpha/beta | ID=alpha@fixture/beta@fixture；写 config.toml enabled=true 与 cache，无独立安装索引 |
+| plugin/list 候选 / config-only / cache-only | 候选非安装；无 cache 的配置不加载；删除配置保留 cache 不加载且 installed 不列 |
+| disabled | installed=true、enabled=false，plugin skills 不列 |
+| 默认 / 显式 skills 根 | skills/ 与 manifest skills="./custom" 均加载；同插件两条 skill 均出现 |
+| 原地 source 修改 / source manifest 缺失 | 已安装技能仍取 cache；installed.localVersion 却跟随 source，所以不能用其选择 active |
+| 重装 v2 / 人工保留 v1 | 重装清除 v1；恢复 v1 后 v2 active；移走 v2 后 v1 active |
+| 1/2/9/10/aaa / future mtime | aaa active，改10的mtime仍aaa；移走aaa后10 active |
+| 空 zzz / local | zzz 令alpha全部技能消失，不回退；local 存在则优先 |
+| prerelease / build | alpha.10 胜 alpha.2；release 胜 prerelease；3.0.0+10 胜 +2 与3.0.0 |
+| marketplace 缺失 | 已配置 cache 继续加载 |
+| uninstall 后恢复旧 cache | 无配置键，不自动加载；缓存残留不能直接视作当前安装 |
+| CLI plugins."alpha@fixture".enabled=false | 无效，config/read 保留含字面引号的另一个键 |
+| CLI plugins.alpha@fixture.enabled=false / 整体 plugins={...} | 有效；整体 TOML 表可准确编码含点号的 ID，不拆 dotted key |
+| User disabled + CLI true | 同插件全部 skill 恢复 |
+| plugin skill path=false / namespace name=false | 可单独禁用一条；无 namespace 的同名规则不命中；CLI精确 path=true 恢复 |
+| 普通根里有 plugin manifest | namespace 用 manifest.name；根与子层SKILL都加载，pluginId=null，installed不列；dev@skills-dir=false 无效，逐canonical path=false 有效 |
+| project | untrusted层忽略；trusted层关闭alpha，CLI true恢复；不同层的仅配置ID仍在config/read |
+| runtime profile | -p fixture 从 fixture.config.toml 关闭alpha，debug prompt-input无alpha；CLI true恢复 |
+| system config | system层alpha=false生效，User与CLI均能覆盖；admin-only ID进入有效plugins表 |
+| bundled true + User单项deny | imagegen按name/path仍false；true只允许bundled来源，不清除单项deny |
+| remote_plugin feature | features list 默认 stable true，CLI features.remote_plugin=false后false；本地alpha/beta仍可加载 |
+
+活动版本算法另由固定 tag [store.rs:158–177、737–740](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/core-plugins/src/store.rs) 对照：有效版本目录、local优先、双方semver时Rust Version比较，否则字符串比较。上述每项排序有真实矩阵；混合版本比较不必构成全序，产品对不能确定唯一最高项的异常集合应停止，不猜Rust sort结果。
+
+本地可扫描并集为当前cwd至git根的两类skills根、HOME/.agents/skills、CODEX_HOME/skills、Unix admin根，以及相关配置层plugins键对应cache活动根；普通manifest命名空间入口留在普通路径集合。配置层并集须包含User、system、祖先项目文件和运行时profile，不能只读User。允许plugin的全部skill也须显式path=true以覆盖User单项deny；禁止plugin同时写总开关false。原计划的引用点分plugin键和排除plugin路径的做法已修订spec。
+
+支持边界：固定 tag [features/src/lib.rs:1368](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/features/src/lib.rs)、[manager.rs:647](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/core-plugins/src/manager.rs) 与 [loader.rs:230–309](https://github.com/openai/codex/blob/rust-v0.153.1/codex-rs/core-plugins/src/loader.rs) 显示 remote_plugin默认true，Codex backend认证时可取远端配置替换本地enabled。此实验无认证，只证明feature能设false与本地开关有效，**没有验证认证远端缓存的关闭语义**。Task3落实活动隔离显式remote_plugin=false与本地来源限定，none透传；不能把本条本地通过当作所有Codex来源均可隔离。
+
+active参数边界交给Task3：拒绝改变cwd/profile/CODEX_HOME、plugins与skills父表/根、marketplace来源、远端feature的用户覆盖，或先纳入完整可验证清单；不要静默接受未知来源扩展。features父表与--enable/--disable远端feature的绕过形式亦须检查；其语法和冲突实现由后续任务验证。Windows Known Folder、远端目录/认证安装、额外agent-plugin manifest格式仍未覆盖。bundled=true保留用户单项deny；缺失允许plugin只写true并报告missing，不保证未来安装后覆盖现存name deny。

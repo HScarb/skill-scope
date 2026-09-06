@@ -173,21 +173,25 @@ cache-only.json 与 auto-off 相同，额外 cache-plugin@skope-git-fixture=true
 
 ### 第 6 条：项目级 skills 目录的扫描范围
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：不符（2026-09-06，已修订 spec §7.2；本地 Linux 门禁通过）。
+- agent：Codex CLI 0.153.1，二进制与第 1 条相同。
+- 命令：`unshare --user --map-root-user --mount --net python3 internal/agent/codex/testdata/verification/discovery_plugins.py /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl --private-admin`。
+- 隔离：唯一 /var/tmp fixture；HOME/USERPROFILE/CODEX_HOME 重定向，最小环境，无认证和模型调用；私有 tmpfs 覆盖 /etc，仅在独立 namespace 写 admin fixture，未写宿主 /etc/codex；network namespace 阻止外部网络。
+- 范围：cwd 到 git 根每一级的 .agents/skills 与 .codex/skills，另 HOME/.agents/skills、CODEX_HOME/skills、/etc/codex/skills；无 git 根只读 cwd。不扫仓库 sibling/descendant，但每个 skills 根内部递归，含已有 SKILL.md 的子目录、symlink 中间目录；隐藏目录跳过，共享canonical目标去重。
+- 解析：同 name 多路径都保留；缺 name 用 basename，缺 description/frontmatter 返回errors且不加载；链接环请求可正常结束，无重复。普通根里plugin manifest只提供namespace，pluginId=null，必须按普通路径处理。
+- 证据：53 组 app-server、3 组模型可见 prompt、3 组 features 命令；布局、完整参数形状、版本排序、断言见 [Task 2 实验](../internal/agent/codex/testdata/verification/README.md) 与 [最小 catalog](../internal/agent/codex/testdata/catalog/README.md)。Windows/Junction 和认证远端来源未验。
 
 ### 第 9 条：plugin ID 格式与 `skills.config` 跨层合并语义
 
-- 状态：未验证（路径跨层部分已完成并修订 spec §7.2；plugin ID 等待 Task 2）。
+- 状态：不符（2026-09-06，已修订 spec §7.2；本地 plugin ID、配置开关与路径跨层门禁通过，认证远端支持未验）。
 - agent 版本、fixture、完整命令同第 1 条及其实验记录。
 - 观察：User path=false、name=false、两者组合的三组规则均不会被 CLI `skills.config=[]` 或仅 block=false 的新数组清除。CLI allow path=true + block path=false 在三组中均恢复 allow；其他同名路径继续禁用。同一路径重复项最后一项胜出。所有 app-server 组的 fixture config.toml 字节不变。
 - 交叉验证：`debug prompt-input` 真实输出证明 User path/name 禁用后的 allow 被 CLI true 恢复，block 从模型可见 skill 清单消失；不是仅凭模型自述或退出 0。
 - 层边界：trusted project skills.config 出现在 config/read 的有效配置及 project 来源，但 skills/list 不应用该层规则；`-p fixture` 的运行时用户 profile 文件会应用规则且 CLI true 可覆盖。app-server 拒绝 `-p`，因此 profile 结论来自 debug prompt-input。
-- 结论：纯 denylist 或空数组不能清除 User 禁用。普通 skill 必须枚举 canonical 路径全集，对选中项显式 true，其余 false，spec §7.2 已修改；不需要产品重定向 CODEX_HOME 或改写用户文件。plugin ID、插件配置层与发现范围仍需 Task 2 验证。
+- 结论：纯 denylist 或空数组不能清除 User 禁用。普通 skill 必须枚举 canonical 路径全集，对选中项显式 true，其余 false，spec §7.2 已修改；不需要产品重定向 CODEX_HOME 或改写用户文件。Task 2 已验证本地 ID=name@marketplace；plugin 总开关用单个 plugins TOML inline table，原引用 dotted-key 写法不生效。User 单项 path/name deny 也作用于 plugin skill，所以允许 plugin 的全部路径必须显式 true。trusted 项目、User、system 和运行时 profile 均影响 plugin 开关，CLI 可覆盖；untrusted 项目配置忽略。安装写 config.toml+cache，没有本地独立索引，活动版本见 catalog fixture。
+
+- bundled 补充：bundled=true 下 User 对 imagegen 的 name/path=false 仍有效，true 只允许system来源，不抹单项deny。
+- 远端边界：固定源码 remote_plugin 默认true且账户远端配置可替换local.enabled；真实 features list 的 CLI false有效并保留本地plugin。没有认证远端实验，Task 3须落实本地来源限定与活动命令显式关闭该feature，不能声称支持远端允许列表。
 
 ## OpenCode（阻断 Phase 4）
 

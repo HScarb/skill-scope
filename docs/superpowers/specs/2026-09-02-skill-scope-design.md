@@ -357,13 +357,19 @@ Capabilities 取值：
 
 | 步骤 | 内容 |
 |---|---|
-| Inventory | 扫描 Codex 可见目录；读 `$CODEX_HOME/config.toml` 的 `[plugins.*]` 键与 `$CODEX_HOME/plugins` 缓存目录得到 plugin 全集 |
-| ControlArgs | `-c 'skills.config=[{path="<allowed abs SKILL.md>",enabled=true},{path="<blocked abs SKILL.md>",enabled=false},...]'` 对普通 skill 全集逐路径显式设置，允许项写 true，其余写 false；`path` 为绝对 SKILL.md 文件路径，skope 先自行 canonicalize 再写入；`-c skills.bundled.enabled=<bool>`；对全集中每个不在允许集合的 plugin 写 `-c 'plugins."<id>".enabled=false'` |
+| Inventory | 扫描 Codex 可见目录；收集 User、system、祖先项目与运行时 profile 配置层的 plugins 键，按已验证本地 cache 活动目录得到 plugin skill 路径；不能虚构独立安装索引，也不能使用 plugin/installed.localVersion 选活动版本 |
+| ControlArgs | `-c 'skills.config=[{path="<allowed abs SKILL.md>",enabled=true},{path="<blocked abs SKILL.md>",enabled=false},...]'` 对普通与本地 plugin skill 全集逐路径显式设置；普通选中项与允许 plugin 的全部路径写 true，其余写 false；`path` 为绝对 SKILL.md 文件路径，skope 先自行 canonicalize 再写入；`-c skills.bundled.enabled=<bool>`；用单个 `-c 'plugins={"<id>"={enabled=true},"<other>"={enabled=false}}'` 对 plugin 全集写显式布尔值；不得使用会保留字面引号的 dotted-key 形式 |
 | 投影 | 不支持。白名单里 Codex 看不到的 ID 记为 unavailable |
 
-用 `path` 而不用 `name`，避免同名不同目录被一起关闭。Codex 没有默认全关，skope 枚举普通 skill 的 canonical 路径全集，按选中的 ID 显式写 true/false。共享 canonical 目标只写一项，任一别名被选中则允许并告警。bundled/plugin skill 不混入普通路径开关。扫描到启动之间新增的 skill 存在竞态。
+用 `path` 而不用 `name`，避免同名不同目录被一起关闭。Codex 没有默认全关，skope 枚举普通与本地 plugin skill 的 canonical 路径全集。普通路径按选中的 ID、plugin 路径按整个 plugin 的允许状态显式写 true/false；plugin 总开关仍控制整体。共享 canonical 目标只写一项，任一来源允许则写 true 并告警。system 路径不混入该数组；bundled=true 只允许 system 来源，保留用户单项 deny。扫描到启动之间新增的 skill 存在竞态。
 
 Codex CLI 0.153.1 的真实验证证明：User 层 path/name 禁用规则不会被 CLI 空数组或仅包含其他路径的新数组清除；CLI 精确 path=true 能重新启用选中路径，其他同名路径仍受原禁用规则约束。同一路径重复规则最后一项生效，所以 skope 必须去重。即使普通全集为空也输出 skills.config=[]，但不能声称该空数组清除了用户禁用项。项目配置的 skills.config 虽进入有效配置，skills/list 不采用该层的 skill 规则。完整对照见 docs/verification.md 第 1、9 条。
+
+Codex 0.153.1 本地发现补充（2026-09-06，docs/verification.md 第 6、9 条）：项目 `.agents/skills` 与 `.codex/skills` 均沿 cwd 至 git 根逐层读取，无 git 根则只读 cwd；不遍历仓库 sibling/descendant。每个 skills 根内部递归、跳隐藏目录、跟随链接并按 canonical 文件去重，已有 SKILL.md 的目录仍向内递归。缺 name 时用 basename；缺 description 或 frontmatter 的文件由 Codex 报错跳过。普通根里的 `.codex-plugin/plugin.json` 仅提供 manifest.name namespace，pluginId=null，不能误归入可用 plugins 开关控制的自动 plugin。
+
+本地 plugin ID 形如 name@marketplace；安装写 config.toml 与 plugins/cache/<marketplace>/<name>/<version>，本次没有独立安装索引。活动目录 local 优先；双方版本为 semver 时用 Rust Version 比较（含 build metadata），否则字符串比较。活动目录缺 manifest 不回退旧版。可见技能使用活动 cache 的 `.codex-plugin/plugin.json`，默认 skills/ 或实测字符串 skills="./custom"。单纯 marketplace 候选、仅配置键、删除配置后的残留 cache 不等于当前可加载 plugin。允许的 plugin 路径须写 true，才能覆盖 User 的 path/name 单项 deny。
+
+远端来源尚未完成认证实测。固定版本源码显示 remote_plugin 默认开启，账户远端配置可替换本地 enabled；真实 features list 已验证 features.remote_plugin=false 可设且本地 plugin 继续加载。Task 3 必须落实本期本地来源限定与活动隔离显式关闭远端 feature，none 保持透传；不声称已验证认证远端缓存关闭或支持允许远端 plugin。Windows Known Folder 根与后续扫描/参数契约由 Task 3 同步。
 
 ### 7.3 OpenCode
 

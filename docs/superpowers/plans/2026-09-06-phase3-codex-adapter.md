@@ -209,6 +209,9 @@ git commit -m "docs: verify Codex skill path controls and config layering"
 
 ### Task 2: 验证发现目录、plugin 安装事实与配置来源
 
+
+**2026-09-06 事实门禁：** 本地 Linux 53+3+3 组真实对照通过；完整证据见 verification README。无独立本地安装索引；普通 manifest namespace 并非自动可控 plugin；plugin 总开关用单个 inline table，允许 plugin 的全部路径也须 true。远端认证来源未验，Task 3落实本地来源限定与 remote_plugin=false，不把本地门禁等同通用远端支持。bundled=true保留User单项deny。
+
 **Files:**
 
 - Modify: `docs/verification.md`（第 6、9 条和 bundled 补充）。
@@ -216,7 +219,7 @@ git commit -m "docs: verify Codex skill path controls and config layering"
 - Create: `internal/agent/codex/testdata/catalog/README.md`（当版原始 schema 的脱敏 fixture 说明）。
 - Create after verification: `internal/agent/codex/testdata/catalog/` 下按真实 schema 命名的配置/安装/manifest fixtures。
 
-- [ ] **Step 1: 建立不同 cwd 与目录层级的标记 fixture**
+- [x] **Step 1: 建立不同 cwd 与目录层级的标记 fixture**
 
 ```text
 fixture/
@@ -234,13 +237,13 @@ fixture/
 
 给每项不同 frontmatter `name`。在 repo、apps/api 和无 git 根目录各启动一次；增加每个 skills 根内 `group/nested/SKILL.md`、隐藏目录、链接 skill、链接中间目录、同名 root/child、不同 basename 相同 name。验证「仓库目录遍历」和「skills 根内部递归」这两个独立维度。Unix admin 根在容器或可控隔离环境验证，不向真实 `/etc/codex` 写 fixture。
 
-- [ ] **Step 2: 验证安装索引、缓存和原地来源**
+- [x] **Step 2: 验证安装索引、缓存和原地来源**
 
 使用不带 MCP、hooks、认证和网络访问的本地测试 plugin，准备 enabled、disabled、同 ID 多版本、仅配置键、仅 marketplace 候选、已卸载但缓存残留、缺失 active root 等对照。所有安装动作仅作用于 fixture CODEX_HOME。
 
 记录实际 ID、安装索引文件名和 schema、有效安装根选择方式、manifest 文件名、skill 根默认值及自定义路径规则、原地开发 plugin 是否存在。明确缓存目录里的哪些条目表示实际安装，哪些只代表候选或历史版本；不预设 `cache/<market>/<plugin>/<version>` 是完整契约，不按版本字符串排序猜当前版本。
 
-- [ ] **Step 3: 验证配置层和插件开关**
+- [x] **Step 3: 验证配置层和插件开关**
 
 分别在 fixture 用户层、项目层、当版支持的 system/admin 层和 profile 中声明不同 plugin ID，核对哪些会进入加载集合；受信任和未信任 workspace 分开记录。只读读取所有潜在项目 plugin 键可以保守扩大关闭集合，但不因此改写 workspace trust。
 
@@ -248,11 +251,11 @@ fixture/
 
 同时核对能引入新来源的参数与配置：cwd、profile、配置覆盖的父表、发现根、安装路径/marketplace 来源。形成确定的「可读入并集」或「活动隔离拒绝」清单；未支持但会加载 skill/plugin 的来源不得静默漏扫。若 bundled/plugin 开关不存在或不生效，本阶段门禁不通过。
 
-- [ ] **Step 4: 固定测试 fixture 与结论**
+- [x] **Step 4: 固定测试 fixture 与结论**
 
 将实验确认的元数据结构复制为最小 fixtures，替换绝对路径为测试 token 并在测试加载时绑定 t.TempDir。README 逐个说明含义、支持版本、active 与 stale 的区别；不要写虚构的生产元数据示例。更新第 6、9 条状态，必要时标「不符（已修订 spec §x）」；第 1、6、9 条全通过后才开始 Task 3。
 
-- [ ] **Step 5: 提交证据**
+- [x] **Step 5: 提交证据**
 
 ```sh
 git add docs/verification.md internal/agent/codex/testdata/verification/README.md internal/agent/codex/testdata/catalog
