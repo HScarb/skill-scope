@@ -99,3 +99,37 @@ func TestCatalogIOFailureStopsNextSource(t *testing.T) {
 		t.Fatalf("%v calls=%d", err, calls)
 	}
 }
+
+type cancelMissingAncestorFS struct {
+	host.OSFileSystem
+	cancel     context.CancelFunc
+	cancelPath string
+	evalCalls  *int
+}
+
+func (f cancelMissingAncestorFS) Lstat(name string) (fs.FileInfo, error) {
+	info, err := f.OSFileSystem.Lstat(name)
+	if filepath.Clean(name) == filepath.Clean(f.cancelPath) && err == nil {
+		f.cancel()
+	}
+	return info, err
+}
+func (f cancelMissingAncestorFS) EvalSymlinks(name string) (string, error) {
+	*f.evalCalls++
+	return f.OSFileSystem.EvalSymlinks(name)
+}
+func TestCatalogCancellationAfterMissingSkillsAncestorStopsResolution(t *testing.T) {
+	_, e, p := setup(t)
+	write(t, filepath.Join(p.CodexHome, "config.toml"), "[plugins.\"a@m\"]")
+	root := plugin(t, p, "a@m", "1.0.0", `{"name":"a"}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	evalCalls := 0
+	disk := host.OSFileSystem{}
+	guarded := cancelMissingAncestorFS{cancel: cancel, cancelPath: root, evalCalls: &evalCalls}
+	c := codex.NewCatalog(guarded, disk, skill.Scanner{FS: disk, RegularFiles: disk})
+	_, err := c.Read(ctx, e, p)
+	if !errors.Is(err, context.Canceled) || evalCalls != 0 {
+		t.Fatalf("err=%v EvalSymlinks calls=%d", err, evalCalls)
+	}
+}

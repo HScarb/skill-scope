@@ -67,6 +67,9 @@ func (c Catalog) readPlugin(ctx context.Context, paths host.CodexPaths, id strin
 	}
 	_, err = c.optionalStat(ctx, rootPath)
 	if missingOnly(err) {
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return fail(rootPath, "plugins.skills", cancelErr)
+		}
 		realPlugin, resolveErr := c.fs.EvalSymlinks(pluginRoot)
 		if resolveErr != nil {
 			return fail(pluginRoot, "plugins.skills", resolveErr)
