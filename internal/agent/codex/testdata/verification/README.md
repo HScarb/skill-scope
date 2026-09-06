@@ -156,3 +156,18 @@ unshare --user --map-root-user --mount --net python3 internal/agent/codex/testda
 - `--enable/--disable remote_plugin` 与 `=remote_plugin` 均生效；`--enable remote_plugin` 无论位于 `-c features.remote_plugin=false` 前后都令最终值为 true，不能依靠最后追加 `-c` 修复。
 - 真实 `--help` 列出 `-C/--cd`、`-p/--profile`。额外 10 组 `debug prompt-input` 覆盖两种选项的短名分离、短名等号、短名附着、长名分离、长名等号，每组断言退出 0 且输出含 fixture prompt。这里验证参数形式可被运行时接受；profile 加载效果已有上面的独立运行时对照。`features list` 不支持 profile，不能以其拒绝为选项不支持的证据。
 - 最新完整结果与 source 参数的 stdout/stderr 在 `/var/tmp/skope-p3-cli-forms-c37f1tgm/`。提交脚本保留全部 case 与断言，临时目录不是唯一复验依据。不提交完整 prompt、缓存或系统 skill 正文；未扩大为 Windows Known Folder/交互模型验证。
+
+
+## Task 13：真实 skope 启动链验收
+
+`skope_acceptance.py` 使用最终干净 clone 构建的 skope 绝对路径，并强制校验上文 Codex 0.153.1 SHA-256。脚本检查映射 root 的 user namespace 和仅含 loopback 的网络环境，先 make-rprivate 再挂载私有 /etc tmpfs；挂载失败即停止。全部 HOME、USERPROFILE、CODEX_HOME、SKOPE_HOME、CLAUDE_CONFIG_DIR、repo 与源文件在新的 /var/tmp fixture，无认证变量、外网或模型调用。
+
+```sh
+unshare --user --map-root-user --mount --net python3 internal/agent/codex/testdata/verification/skope_acceptance.py "$SKOPE_EXE" /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl
+```
+
+17 组 skope 命令覆盖 path/name/组合 User deny 的 none→active→dry-run 对照、bundled、空白名单、普通 manifest 根自身/子 skill、remote feature 和空 inventory。真实 `debug prompt-input` 输出的根别名先展开，再对实际 skill 条目做 canonical path 比较；同名路径不会混淆，symlink 的展示入口与实际目标也不会被误当成两个文件。bundled=true 与同 User 配置的 none 可见 system 集合精确一致，imagegen 单项 deny 保留，openai-docs 明确存在。磁盘上的 review-agent 不出现在这版 prompt 中，不把磁盘存在等同模型可见。
+
+每次 prompt/features 命令在原 skope PID 的 /proc/exe、/proc/cmdline 观测真实 Codex 接管，保存完整 delegate argv，并核对 active 最后的 remote_plugin=false。session owner 的 PID 必须相同；session 仅含 owner.json，后续 dry-run/none 回收。config、安装 manifest、源 SKILL/command 文件在启动前固定旧 mtime，每条命令后核对字节及 mtime 完全一致；Codex 自身 fixture cache/session 写入不计作 skope 配置改写。
+
+复跑会打印唯一目录，保存 results.json（含完整 skope/delegate argv、prompt、owner）和 summary.json；这些原始输出与 bundled 正文不提交仓库。最终构建身份、SHA-256、目录和 CI 链接见仓库 docs/verification.md 的 Phase 3 记录。这里证明真实 Codex 的 prompt 加载与 Unix handoff，不宣称模型执行 skill 或认证远端插件已验证。
