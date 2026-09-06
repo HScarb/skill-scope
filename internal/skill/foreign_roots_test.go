@@ -72,6 +72,8 @@ func TestScanForeignRootsCommandRejectionsAndReadErrors(t *testing.T) {
 
 func TestScanForeignRootsRejectsDanglingCommandRoot(t *testing.T) {
 	f := &foreignFS{mapFileSystem: newMapFS(fstest.MapFS{"commands": symlink("missing")})}
+	// Go 1.24 MapFS does not follow symlinks; model the host ReadDir error explicitly.
+	f.errors["readDir:/commands"] = fs.ErrNotExist
 	_, err := (skill.Scanner{FS: f, RegularFiles: f}).ScanForeignRoots([]skill.Root{{Path: "/commands", Kind: skill.KindCommand}}, 100)
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("dangling command root: %v", err)
