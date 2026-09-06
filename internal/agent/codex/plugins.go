@@ -19,7 +19,7 @@ func (c Catalog) readPlugin(ctx context.Context, paths host.CodexPaths, id strin
 	if err := ctx.Err(); err != nil {
 		return fail(cache, "plugins.cache", err)
 	}
-	_, err := c.optionalStat(ctx, cache)
+	err := c.optionalStat(ctx, cache)
 	if missingOnly(err) {
 		return nil, false, nil
 	}
@@ -65,7 +65,7 @@ func (c Catalog) readPlugin(ctx context.Context, paths host.CodexPaths, id strin
 	if err := ctx.Err(); err != nil {
 		return fail(rootPath, "plugins.skills", err)
 	}
-	_, err = c.optionalStat(ctx, rootPath)
+	err = c.optionalStat(ctx, rootPath)
 	if missingOnly(err) {
 		if cancelErr := ctx.Err(); cancelErr != nil {
 			return fail(rootPath, "plugins.skills", cancelErr)

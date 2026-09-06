@@ -4,10 +4,13 @@ package codex_test
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/scarb/skope/internal/agent/codex"
 	"golang.org/x/sys/unix"
 )
 
@@ -91,5 +94,37 @@ func TestCatalogIgnoresVersionSymlink(t *testing.T) {
 	s, err := c.Read(context.Background(), e, p)
 	if err != nil || len(s.InstalledIDs) != 1 {
 		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+func TestReadCodexConfigSymlinkToRegularFile(t *testing.T) {
+	c, e, p := setup(t)
+	target := filepath.Join(p.Home, "linked-config.toml")
+	write(t, target, "[plugins.\"a@m\"]\nenabled=false")
+	path := filepath.Join(p.CodexHome, "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.Read(context.Background(), e, p)
+	if err != nil || len(s.PluginIDs) != 1 || s.PluginIDs[0] != "a@m" {
+		t.Fatalf("%+v %v", s, err)
+	}
+}
+func TestReadCodexConfigDanglingSymlinkFails(t *testing.T) {
+	c, e, p := setup(t)
+	path := filepath.Join(p.CodexHome, "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(p.Home, "missing-config.toml"), path); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.Read(context.Background(), e, p)
+	var inventory *codex.InventoryError
+	if !errors.As(err, &inventory) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("%v", err)
 	}
 }

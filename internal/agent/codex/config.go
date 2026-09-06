@@ -39,11 +39,21 @@ func (c Catalog) readConfig(ctx context.Context, path string) ([]string, error) 
 	if err := ctx.Err(); err != nil {
 		return fail("config", err)
 	}
-	info, err := c.optionalStat(ctx, path)
+	err := c.optionalStat(ctx, path)
 	if missingOnly(err) {
 		return nil, nil
 	}
 	if err != nil {
+		return fail("config", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fail("config", err)
+	}
+	info, err := c.fs.Stat(path)
+	if err != nil {
+		return fail("config", err)
+	}
+	if err := ctx.Err(); err != nil {
 		return fail("config", err)
 	}
 	if !info.Mode().IsRegular() {
@@ -183,35 +193,35 @@ func validateSkills(raw map[string]any) error {
 }
 
 // optionalStat distinguishes genuinely absent paths from broken ancestor links.
-func (c Catalog) optionalStat(ctx context.Context, name string) (fs.FileInfo, error) {
+func (c Catalog) optionalStat(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	info, err := c.fs.Lstat(name)
+	_, err := c.fs.Lstat(name)
 	if !missingOnly(err) {
-		return info, err
+		return err
 	}
 	for parent := filepath.Dir(name); ; parent = filepath.Dir(parent) {
 		if cancelErr := ctx.Err(); cancelErr != nil {
-			return nil, cancelErr
+			return cancelErr
 		}
 		ancestor, ancestorErr := c.fs.Lstat(parent)
 		if ancestorErr == nil {
 			if ancestor.Mode()&fs.ModeSymlink != 0 {
 				if cancelErr := ctx.Err(); cancelErr != nil {
-					return nil, cancelErr
+					return cancelErr
 				}
 				if _, statErr := c.fs.Stat(parent); statErr != nil {
-					return nil, errors.Join(fs.ErrInvalid, statErr)
+					return errors.Join(fs.ErrInvalid, statErr)
 				}
 			}
-			return nil, err
+			return err
 		}
 		if !missingOnly(ancestorErr) {
-			return nil, ancestorErr
+			return ancestorErr
 		}
 		if filepath.Dir(parent) == parent {
-			return nil, err
+			return err
 		}
 	}
 }
