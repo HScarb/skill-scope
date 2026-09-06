@@ -941,6 +941,7 @@ git commit -m "test: verify Codex isolation end to end with fake agents"
 - Windows：`go test ./internal/cli -run TestIntegrationPhaseThree -count=1 -timeout 180s -v`、`go test ./internal/cli -run TestIntegrationPhaseTwo -count=1 -timeout 180s`、四相关包与 `./internal/testutil/...` 完整测试、`go test -short ./... -count=1 -timeout 180s` 通过。Phase 3 binary help/dry-none 实际 PASS；active、active dry-run 来源 guard、Unix handoff 用例跳过。注入应用 active/dry-run、真实 Junction/retarget 均实际执行。
 - WSL Ubuntu：Phase 3 `-v` 全组实际 PASS、无 skip，真实 fakeagent PID 等于 owner PID、退出码 23 原样保留、仅 owner.json、下一次 dry-run 回收。`go test -race ./internal/agent/codex ./internal/skill ./internal/launch ./internal/cli ./internal/testutil/... -count=1 -timeout 180s` 通过，包含原 Phase 2 回归。使用既有离线 Go runtime/GOPATH，未调用真实 Codex CLI、认证或模型。
 - 只对三个实际改动 Go 文件运行固定 `golangci-lint@v2.13.2 fmt`，`run ./internal/cli/... ./internal/testutil/...` 通过。Step 1 本地 fixture 工作完成；其 macOS 实际运行及同提交 CI 链接尚未验证，保留未勾选，交由 Task 13 在 PR CI 收集。fakeagent 仅证明生成参数与生命周期，实际 Codex 配置覆盖效果仍待 Task 13。
+- Task 12 审查补强：测试 TOML 解码的 path/plugin/bundled/remote 布尔字段改用 `*bool`，先检查非 nil 再比较值。临时局部反例分别省略四类字段，均在对应显式字段断言失败；反例文件已移除，此为测试断言能力验证，不是产品 bug 红绿。首次 binary active 前记录 Codex config、skope config、skillsets 字节并将 mtime 固定为 2001-02-03T04:05:06Z，active 和后续 dry-run 分别核对字节及 mtime 未改写。Windows `go test -short ./internal/cli ./internal/testutil/... -count=1 -timeout 180s`、WSL `go test -race ./internal/cli -run TestIntegrationPhaseThree -count=1 -timeout 180s -v` 通过（WSL 全组实际执行、无 skip），固定 lint `run ./internal/cli/...` 为 0 issues。
 
 ### Task 13: 质量门禁、真实 Codex 验收与交付文档
 

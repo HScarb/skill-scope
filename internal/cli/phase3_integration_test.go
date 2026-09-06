@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/scarb/skope/internal/session"
 	"github.com/scarb/skope/internal/skill"
@@ -29,10 +30,41 @@ func TestIntegrationPhaseThreeBinaryIsolationAndReaping(t *testing.T) {
 	f := newPhaseThreeBinary(t)
 	want := phaseThreePopulate(t, f.home, f.repo, filepath.Join(f.home, ".codex"), f.claudeConfig)
 	phaseTwoWrite(t, filepath.Join(f.skopeHome, "skillsets.toml"), "version=1\n[skillsets.dev]\nskills=['selected','foreign','command','deny-skill','absent']\nplugins.codex=['permit@market','missing@market']\nbundled=false\n")
+	// An unchanged byte comparison alone would miss rewriting identical config.
+	oldTime := time.Date(2001, time.February, 3, 4, 5, 6, 0, time.UTC)
+	configBefore := make(map[string][]byte)
+	for _, path := range []string{filepath.Join(f.home, ".codex", "config.toml"), filepath.Join(f.skopeHome, "config.toml"), filepath.Join(f.skopeHome, "skillsets.toml")} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configBefore[path] = data
+		if err := os.Chtimes(path, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertConfigUnchanged := func() {
+		t.Helper()
+		for path, before := range configBefore {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, data) || !info.ModTime().Equal(oldTime) {
+				t.Fatalf("config bytes or mtime changed: %s", path)
+			}
+		}
+	}
+	assertConfigUnchanged()
 	out, code := f.run(t, []string{"codex", "-s", "dev", "--", "--from-user", "中文\u202e", ""}, map[string]string{"AUTH_TOKEN": phaseThreeSecret, "FAKEAGENT_EXIT": "23"})
 	if code != 23 {
 		t.Fatalf("%d %s", code, out)
 	}
+	assertConfigUnchanged()
 	phaseThreeAssertSummary(t, out)
 	r := readFakeRecord(t, f.fakeOutput)
 	wantPrefix := []string{"--from-config", "configured", "--from-user", "中文\u202e", ""}
@@ -80,6 +112,7 @@ func TestIntegrationPhaseThreeBinaryIsolationAndReaping(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("%d %s", code, out)
 	}
+	assertConfigUnchanged()
 	phaseThreeAssertSummary(t, out)
 	assertPhaseTwoNoSession(t, f)
 	if !reflect.DeepEqual(before, phaseThreeSnapshot(t, filepath.Join(f.home, ".codex"))) {

@@ -142,13 +142,13 @@ func phaseThreeAssertControls(t *testing.T, args []string, wantPaths, wantPlugin
 		Skills struct {
 			Config []struct {
 				Path    string
-				Enabled bool
+				Enabled *bool
 			}
-			Bundled struct{ Enabled bool }
+			Bundled struct{ Enabled *bool }
 		}
-		Plugins  map[string]struct{ Enabled bool }
+		Plugins  map[string]struct{ Enabled *bool }
 		Features struct {
-			RemotePlugin bool `toml:"remote_plugin"`
+			RemotePlugin *bool `toml:"remote_plugin"`
 		}
 	}
 	if err := toml.Unmarshal([]byte(strings.Join([]string{args[1], args[3], args[5], args[7]}, "\n")), &decoded); err != nil {
@@ -159,14 +159,23 @@ func phaseThreeAssertControls(t *testing.T, args []string, wantPaths, wantPlugin
 		if _, exists := gotPaths[row.Path]; exists {
 			t.Fatalf("duplicate path %s", row.Path)
 		}
-		gotPaths[row.Path] = row.Enabled
+		if row.Enabled == nil {
+			t.Fatalf("path %s omitted enabled", row.Path)
+		}
+		gotPaths[row.Path] = *row.Enabled
 	}
 	gotPlugins := map[string]bool{}
 	for id, p := range decoded.Plugins {
-		gotPlugins[id] = p.Enabled
+		if p.Enabled == nil {
+			t.Fatalf("plugin %s omitted enabled", id)
+		}
+		gotPlugins[id] = *p.Enabled
 	}
-	if !reflect.DeepEqual(gotPaths, wantPaths) || !reflect.DeepEqual(gotPlugins, wantPlugins) || decoded.Skills.Bundled.Enabled != bundled || args[7] != "features.remote_plugin=false" {
-		t.Fatalf("paths=%v plugins=%v bundled=%t remote=%s", gotPaths, gotPlugins, decoded.Skills.Bundled.Enabled, args[7])
+	if decoded.Skills.Bundled.Enabled == nil || decoded.Features.RemotePlugin == nil {
+		t.Fatal("controls omitted bundled.enabled or features.remote_plugin")
+	}
+	if !reflect.DeepEqual(gotPaths, wantPaths) || !reflect.DeepEqual(gotPlugins, wantPlugins) || *decoded.Skills.Bundled.Enabled != bundled || *decoded.Features.RemotePlugin || args[7] != "features.remote_plugin=false" {
+		t.Fatalf("paths=%v plugins=%v bundled=%t remote=%s", gotPaths, gotPlugins, *decoded.Skills.Bundled.Enabled, args[7])
 	}
 }
 
