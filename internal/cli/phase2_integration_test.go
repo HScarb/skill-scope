@@ -96,6 +96,7 @@ func (f *phaseTwoFixture) runPhaseTwo(t *testing.T, args []string, extra map[str
 	for key, value := range extra {
 		env[key] = value
 	}
+	// Keep all binary launches behind the shared system-source isolation guard.
 	return f.run(t, args, env)
 }
 

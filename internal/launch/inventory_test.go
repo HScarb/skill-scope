@@ -56,3 +56,16 @@ func TestMergeForeignInventoryKeepsRejectedCommandIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeForeignInventoryCopiesForeignWarnings(t *testing.T) {
+	native := agent.Inventory{Warnings: []string{"native"}, PluginIDs: []string{"claude@m"}}
+	foreign := skill.ScanResult{Warnings: []string{"foreign"}}
+	got, _ := mergeForeignInventory(native, foreign)
+	if !reflect.DeepEqual(got.Warnings, []string{"native", "foreign"}) {
+		t.Fatalf("warnings=%v", got.Warnings)
+	}
+	got.Warnings[1] = "changed"
+	if foreign.Warnings[0] != "foreign" {
+		t.Fatal("aliased warnings")
+	}
+}

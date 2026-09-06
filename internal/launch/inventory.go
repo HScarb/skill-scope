@@ -14,6 +14,7 @@ func mergeForeignInventory(native agent.Inventory, foreign skill.ScanResult) (ag
 		PluginIDs:  append([]string(nil), native.PluginIDs...),
 		Warnings:   append([]string(nil), native.Warnings...),
 	}
+	merged.Warnings = append(merged.Warnings, foreign.Warnings...)
 	merged.Skills, merged.Collisions = skill.Merge(candidates)
 	return merged, append([]skill.ScanRejection(nil), foreign.Rejections...)
 }

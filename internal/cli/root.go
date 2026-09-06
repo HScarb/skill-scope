@@ -11,6 +11,7 @@ import (
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/agent/claude"
+	"github.com/scarb/skope/internal/agent/codex"
 	"github.com/scarb/skope/internal/config"
 	"github.com/scarb/skope/internal/handoff"
 	"github.com/scarb/skope/internal/host"
@@ -207,7 +208,7 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 			return agent.NewRegistry(adapter)
 		},
 		CheckConflicts: CheckConflicts,
-		Foreign:        scanner,
+		Foreign:        NewForeignScanner(scanner, codex.NewCatalog(fsys, fsys, scanner), host.ResolveCodexPaths),
 		Inspector:      projection.Inspector{OpenRoot: openRoot},
 		Copier:         projection.Copier{OpenRoot: openRoot},
 		Resolver:       host.ExecutableResolver{},

@@ -25,7 +25,7 @@ type RegistryFactory func(executable string, selection config.Selection) (Adapte
 type ConflictChecker func(agent skill.Agent, configArgs, userArgs []string) error
 
 type ForeignScanner interface {
-	ScanForeignGlobals(host.Env, int64) (skill.ScanResult, error)
+	ScanForeign(context.Context, host.Env, skill.Agent, int64) (skill.ScanResult, error)
 }
 
 type ExecutableResolver interface {
@@ -213,7 +213,7 @@ func (s *Service) Run(ctx context.Context, req Request, report Reporter) error {
 	if s.Foreign == nil {
 		return errors.New("foreign scanner is required")
 	}
-	foreign, err := s.Foreign.ScanForeignGlobals(s.Env, projection.MaxBytes)
+	foreign, err := s.Foreign.ScanForeign(ctx, s.Env, req.Agent, projection.MaxBytes)
 	if err != nil {
 		return fmt.Errorf("scan foreign skills: %w", err)
 	}

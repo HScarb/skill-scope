@@ -736,7 +736,7 @@ git commit -m "feat: reject conflicting Codex configuration and source arguments
 - Update test doubles: `internal/launch/launch_test.go`、`internal/cli/phase2_application_test.go`。
 - Modify: `internal/cli/integration_test.go`（公共 integrationFixture.run 的 binary 防护）、`internal/cli/phase2_integration_test.go`（runPhaseTwo 及直接公共 fixture 调用的回归断言）；后续 phase3 binary fixture 必须复用该入口。
 
-- [ ] **Step 1: 先完成公共 binary fixture 防护，再写 scanner 到 Service 的测试**
+- [x] **Step 1: 先完成公共 binary fixture 防护，再写 scanner 到 Service 的测试**
 
 此步必须在 Step 3 将 Codex Foreign 接入生产 composer 之前完成，并先于本 Task 的任何 binary 回归运行；不得延到 Task 12。`internal/cli/integration_test.go:integrationFixture.run` 在启动真实 skope 子进程前检查本次命令：Windows 的 active（含 dry-run）直接 skip，说明 HOME/USERPROFILE 不重定向 Known Folder；none/help 仍运行。不要在 newIntegrationFixture 构造时无条件 skip，Phase 2/3 注入应用测试仍须复用临时 fixture 并执行。
 
@@ -760,14 +760,14 @@ guard 判断用注入 Lstat/平台输入测试 Windows active、Windows none/hel
 | Codex none | 不调用 factory/foreign/catalog/Inspector，坏 skillsets/agent 元数据旁路 |
 | Plan canonicalize 失败、Report/Handoff 失败 | 既有 abort 和 joined cleanup error 语义保持 |
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/launch -run 'TestServiceCodex|TestMergeForeign' -count=1
 go test ./internal/cli -run 'TestBinarySourceGuard|TestForeignSources' -count=1
 ```
 
-- [ ] **Step 3: 实现消费方接口与 CLI composer**
+- [x] **Step 3: 实现消费方接口与 CLI composer**
 
 将 ForeignScanner 替换为前文 `ScanForeign(ctx, env, target, maxBytes)`，Service 原位置传 req.Agent 和已有 `projection.MaxBytes`，更新所有 fake。实现 `cli.foreignSources`：
 
@@ -779,7 +779,7 @@ go test ./internal/cli -run 'TestBinarySourceGuard|TestForeignSources' -count=1
 
 Codex 自己的普通根在原生扫描中只读一次；外来扫描不再重复 `.agents/skills`/CODEX_HOME。构造两个 adapter 本身无副作用，Codex 启动不要求机器安装 Claude。
 
-- [ ] **Step 4: 运行绿灯与 Phase 2 全链路回归**
+- [x] **Step 4: 运行绿灯与 Phase 2 全链路回归**
 
 ```sh
 go test ./internal/launch -count=1
@@ -789,12 +789,20 @@ go test -short ./...
 
 Expected：可运行测试全部 PASS；Windows active binary 按 Step 1 在启动前 skip，none/help 与注入应用测试运行；Unix 仅在固定系统来源均不存在时运行 active binary，并记录实际执行/skip。原生元数据不会被空 Names 的 foreign rejection 覆盖；测试环境新增的 Codex Home/CodexHome/配置/admin 根全部由 resolver 指向 fixture；Claude 的 name-only foreign fixture 仍可投影。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/cli/sources.go internal/cli/sources_test.go internal/cli/root.go internal/cli/phase2_application_test.go internal/cli/integration_test.go internal/cli/phase2_integration_test.go internal/launch internal/skill/scan.go
 git commit -m "feat: merge target-specific foreign sources during launch"
 ```
+
+**2026-09-06 Task 10 实施记录：** 公共 integrationFixture.run 的来源 guard 先实现并验证，再切换生产 Foreign；guard 通过无副作用 cli.Application 使用真实参数解析，`claude -s dev -- -s none` 仍按 active 保护。Windows active（含 dry-run）在启动前 skip；Unix 只 Lstat 两个固定系统入口，存在（含链接）skip、其他 I/O 错误失败，不读取来源内容。runPhaseTwo 保持委托公共 run；newIntegrationFixture 未增加平台 skip。phaseTwoService 显式注入临时 Home/CodexHome/AdminSkillRoots/SystemConfigPaths。
+
+实现 NewForeignScanner 与带 ctx/target 的 launch.ForeignScanner，Codex 只取 Claude roots/commands，Claude 先 resolver/Catalog 后 Codex roots/plugin roots；外部步骤前后检查取消，构造不访问依赖。ScanResult.Warnings 复制进入合并清单，既有 skill.Merge 保留 ID、碰撞与原生来源优先顺序，原生 PluginIDs/SkillNames 的归属不变。Codex 命令和生产 registry 尚未注册；未修改冻结类型或依赖。launch_test.go 复用的 foreignScanFunc 接口实现在 orchestration_test.go 更新，故前者不产生无关改动。
+
+红灯证据：`go test ./internal/cli -run TestBinarySourceGuard -count=1` 首次因缺 binarySourceGuard 失败，补公共保护后通过；随后指定 launch 定向命令因缺 ScanResult.Warnings 失败，cli 定向命令因缺 NewForeignScanner 失败。真实 adapter 服务测试覆盖 unavailable/command-only/native+foreign、一次原生扫描、panic Inspector/Copier、active/dry 顺序、真实 manager 只有 owner.json、none 旁路坏 skillsets/Codex metadata，以及真实 canonicalize/Report/Handoff/取消失败与 joined Abort。额外来源测试覆盖 scope/admin 投影、plugin-only 不复制、bundled 排除、限额/特殊文件保留拒绝、目录 I/O 与取消、catalog warning 无可变别名。调试中修正两处测试构造问题：仓库根 Scope 为空字符串、真实 manager 清理必须保留 Stage 返回的会话句柄；未据此修改产品语义。
+
+验证：Windows `go test ./internal/launch -count=1`、`go test ./internal/cli -run 'TestBinarySourceGuard|TestForeignSources|TestIntegrationPhaseTwo' -count=1`、全仓 `go test -short ./...` 通过；固定 golangci-lint v2.13.2 fmt --diff 无输出、cli/launch/skill 三包 run 为 0 issues。Windows verbose 输出确认 active binary 由 guard skip，none dry-run、help binary、Phase 2 注入应用与新增来源服务测试实际 PASS。WSL Ubuntu 使用既有离线 Go/GOPATH 运行 `go test -race ./internal/cli ./internal/launch -count=1 -v` 通过，输出无 SKIP；PhaseTwoDryRunInspectsCompleteInventoryWithoutWriting 和 PhaseTwoLaunchCopiesCompleteTreeAndReapsExitedOwner 实际 PASS，说明公共 guard 检查两固定入口 ENOENT 后运行。未执行真实 Codex/模型/认证，也未读取真实用户配置或 skills。等待独立 spec→quality 审查。
 
 ### Task 11: 注册 Codex 命令并输出真实计划摘要
 

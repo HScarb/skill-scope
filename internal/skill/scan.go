@@ -22,6 +22,7 @@ type FileSystem interface {
 }
 
 type ScanResult struct {
+	Warnings    []string
 	Skills      []Skill
 	Collisions  []Collision
 	ProjectRoot string

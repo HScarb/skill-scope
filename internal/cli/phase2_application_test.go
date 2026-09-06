@@ -13,6 +13,7 @@ import (
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/agent/claude"
+	"github.com/scarb/skope/internal/agent/codex"
 	"github.com/scarb/skope/internal/cli"
 	"github.com/scarb/skope/internal/config"
 	"github.com/scarb/skope/internal/host"
@@ -61,7 +62,9 @@ func phaseTwoService(t *testing.T, f *integrationFixture, runner claude.ProbeRun
 		NewRegistry: func(executable string, selected config.Selection) (launch.AdapterRegistry, error) {
 			return agent.NewRegistry(claude.New(scanner, fsys, runner, claude.Options{Executable: executable, Plugins: selected.Plugins["claude"], Bundled: selected.Bundled}))
 		},
-		CheckConflicts: cli.CheckConflicts, Foreign: scanner, Resolver: host.ExecutableResolver{},
+		CheckConflicts: cli.CheckConflicts, Foreign: cli.NewForeignScanner(scanner, codex.NewCatalog(fsys, fsys, scanner), func(host.Env) (host.CodexPaths, error) {
+			return host.CodexPaths{Home: f.home, CodexHome: filepath.Join(f.home, ".codex"), AdminSkillRoots: []string{filepath.Join(f.root, "admin", "skills")}, SystemConfigPaths: []string{filepath.Join(f.root, "admin", "config.toml")}}, nil
+		}), Resolver: host.ExecutableResolver{},
 		Inspector: projection.Inspector{OpenRoot: open}, Copier: projection.Copier{OpenRoot: open},
 		Sessions: phaseTwoManagedSessions{SessionManager: manager, t: t}, Handoff: handoff,
 	}, handoff
