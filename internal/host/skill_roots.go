@@ -26,12 +26,20 @@ func resolveCodexPaths(env Env, lookup func(Env) (string, []string, []string, er
 	if !filepath.IsAbs(home) {
 		return CodexPaths{}, fmt.Errorf("codex home must be absolute")
 	}
-	codexHome := strings.TrimSpace(env.Get("CODEX_HOME"))
+	// Cleaning a parent component can change the directory reached through a symlink.
+	if slices.Contains(strings.Split(filepath.ToSlash(home), "/"), "..") {
+		return CodexPaths{}, fmt.Errorf("codex home must not contain parent-directory components")
+	}
+	// Codex receives the original environment, so whitespace is part of the path.
+	codexHome := env.Get("CODEX_HOME")
 	if codexHome == "" {
 		codexHome = filepath.Join(home, ".codex")
 	}
 	if !filepath.IsAbs(codexHome) {
 		return CodexPaths{}, fmt.Errorf("CODEX_HOME must be an absolute directory")
+	}
+	if slices.Contains(strings.Split(filepath.ToSlash(codexHome), "/"), "..") {
+		return CodexPaths{}, fmt.Errorf("CODEX_HOME must not contain parent-directory components")
 	}
 	return CodexPaths{Home: filepath.Clean(home), CodexHome: filepath.Clean(codexHome), AdminSkillRoots: slices.Clone(admins), SystemConfigPaths: slices.Clone(configs)}, nil
 }

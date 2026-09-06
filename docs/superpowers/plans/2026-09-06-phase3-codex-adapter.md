@@ -373,7 +373,7 @@ func (s Scanner) ScanCodex(env host.Env, paths host.CodexPaths) (ScanResult, err
 
 增加 `Scanner.CodexRoots(env, paths)`、`Scanner.ClaudeRoots(env)`；后者复用 `claudeScanRoots`，不另写 Claude 遍历。配置层读取需要项目链时提取 `ProjectDirectories(FileSystem, cwd) (root string, dirs []string, err error)`，让现有 Claude 与新 Codex 共用 findGitRoot/projectDirectories 的结果。
 
-`host.ResolveCodexPaths` 的 Unix helper 返回 env.Home、admin=[/etc/codex/skills]、systemConfig=[/etc/codex/config.toml]；Windows helper 使用 KnownFolderPath，后两项为空。显式 CODEX_HOME trim 后须绝对目录，否则错误；缺省使用该平台 home/.codex。Windows API 依据固定 x/sys v0.41.0 的 go doc 与 Context7 /golang/sys 已核对。两平台都将 Home 用于 .agents 根，不能只修 admin。host 测试注入 home 查询 seam 验证失败与忽略 HOME/USERPROFILE，不读取真实目录。
+`host.ResolveCodexPaths` 的 Unix helper 返回 env.Home、admin=[/etc/codex/skills]、systemConfig=[/etc/codex/config.toml]；Windows helper 使用 KnownFolderPath，后两项为空。显式非空 CODEX_HOME 保留原始空白并须为绝对目录，纯空白值报错；缺省使用该平台 home/.codex。平台 home 与 CODEX_HOME 均拒绝含 `..` 路径段，不能在符号链接解析前用 Clean 改变来源；尾空格目录按原值扫描。此规定由 Task 13 最终审查的真实反例修订。Windows API 依据固定 x/sys v0.41.0 的 go doc 与 Context7 /golang/sys 已核对。两平台都将 Home 用于 .agents 根，不能只修 admin。host 测试注入 home 查询 seam 验证失败与忽略 HOME/USERPROFILE，不读取真实目录。
 
 `ScanForeignGlobals` 委托新的 `ScanForeignRoots`，保留旧调用兼容。抽取读取循环时复制完整 Root 元数据；foreign command 复用命名空间遍历及普通文件检查，增加同样的有界读取。Root 增加字段 `ScanMode ScanMode`；skill/scope.go 定义 `type ScanMode uint8` 及 `const (DirectChildren ScanMode = iota; CodexRecursive)`（零值保留既有行为），Codex 普通/plugin/foreign roots 显式设 CodexRecursive；Claude skill 直子项和 command 规则不变。Codex 遍历跳隐藏目录、跟随中间链接、遇 SKILL.md 继续递归；当前递归链 canonical 目录防环，保留不同 discovery 入口，不全局去重丢身份。读取 .codex-plugin/plugin.json 的 manifest.name 作为其子树名称前缀，不停止普通遍历、不设置 PluginID；plugin cache root 的 PluginID 由 Catalog 提供。禁止先 ScanRoots 无界读完再给结果加 Rejection。
 

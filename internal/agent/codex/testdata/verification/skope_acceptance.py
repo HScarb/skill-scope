@@ -228,6 +228,31 @@ out = prompt("empty-inventory-active", "empty")
 assert "PHASE3_" not in out and "/SKILL.md" not in out
 run("empty-final-reap", ["codex", "-s", "none", "--", "--version"])
 assert sessions() == []
+
+# Preserve literal whitespace in CODEX_HOME; lexical '..' after a symlink is
+# rejected because cleaning it before filesystem traversal changes the source.
+space_home = EMPTY / "codex "
+space_skill = skill(space_home / "skills/not-allowed", "p3-space-not-allowed")
+ENV["CODEX_HOME"] = str(space_home)
+visible(prompt("space-home-none", "none"), space_skill, True)
+visible(prompt("space-home-active", "empty"), space_skill, False)
+link_parent, actual_parent = EMPTY / "a", EMPTY / "b"
+link_parent.mkdir()
+(actual_parent / "child").mkdir(parents=True)
+(link_parent / "link").symlink_to(actual_parent / "child", target_is_directory=True)
+(link_parent / "codex").mkdir()
+dotdot_skill = skill(actual_parent / "codex/skills/not-allowed", "p3-parent-not-allowed")
+ENV["CODEX_HOME"] = str(link_parent / "link") + "/../codex"
+visible(prompt("parent-home-none", "none"), dotdot_skill, True)
+for label, args in (("parent-home-dry-rejected", ["--dry-run"]),
+                    ("parent-home-launch-rejected", ["--", "--version"])):
+    rejected = run(label, ["codex", "-s", "empty", *args], expected=1)
+    assert "CODEX_HOME must not contain parent-directory components" in rejected["stderr"], rejected
+    assert sessions() == []
+ENV["CODEX_HOME"] = " \t "
+rejected = run("whitespace-home-rejected", ["codex", "-s", "empty", "--dry-run"], expected=1)
+assert "CODEX_HOME must be an absolute directory" in rejected["stderr"], rejected
+assert sessions() == []
 unchanged()
 (ROOT / "results.json").write_text(json.dumps(RESULTS, indent=2), encoding="utf-8")
 (ROOT / "summary.json").write_text(json.dumps({"skope": str(SKOPE), "skope_sha256": hashlib.sha256(SKOPE.read_bytes()).hexdigest(),

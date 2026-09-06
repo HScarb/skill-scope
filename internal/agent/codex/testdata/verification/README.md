@@ -166,8 +166,10 @@ unshare --user --map-root-user --mount --net python3 internal/agent/codex/testda
 unshare --user --map-root-user --mount --net python3 internal/agent/codex/testdata/verification/skope_acceptance.py "$SKOPE_EXE" /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl
 ```
 
-17 组 skope 命令覆盖 path/name/组合 User deny 的 none→active→dry-run 对照、bundled、空白名单、普通 manifest 根自身/子 skill、remote feature 和空 inventory。真实 `debug prompt-input` 输出的根别名先展开，再对实际 skill 条目做 canonical path 比较；同名路径不会混淆，symlink 的展示入口与实际目标也不会被误当成两个文件。bundled=true 与同 User 配置的 none 可见 system 集合精确一致，imagegen 单项 deny 保留，openai-docs 明确存在。磁盘上的 review-agent 不出现在这版 prompt 中，不把磁盘存在等同模型可见。
+23 组 skope 命令覆盖 path/name/组合 User deny 的 none→active→dry-run 对照、bundled、空白名单、普通 manifest 根自身/子 skill、remote feature 和空 inventory。真实 `debug prompt-input` 输出的根别名先展开，再对实际 skill 条目做 canonical path 比较；同名路径不会混淆，symlink 的展示入口与实际目标也不会被误当成两个文件。bundled=true 与同 User 配置的 none 可见 system 集合精确一致，imagegen 单项 deny 保留，openai-docs 明确存在。磁盘上的 review-agent 不出现在这版 prompt 中，不把磁盘存在等同模型可见。
 
 每次 prompt/features 命令在原 skope PID 的 /proc/exe、/proc/cmdline 观测真实 Codex 接管，保存完整 delegate argv，并核对 active 最后的 remote_plugin=false。session owner 的 PID 必须相同；session 仅含 owner.json，后续 dry-run/none 回收。config、安装 manifest、源 SKILL/command 文件在启动前固定旧 mtime，每条命令后核对字节及 mtime 完全一致；Codex 自身 fixture cache/session 写入不计作 skope 配置改写。
 
 复跑会打印唯一目录，保存 results.json（含完整 skope/delegate argv、prompt、owner）和 summary.json；这些原始输出与 bundled 正文不提交仓库。最终构建身份、SHA-256、目录和 CI 链接见仓库 docs/verification.md 的 Phase 3 记录。这里证明真实 Codex 的 prompt 加载与 Unix handoff，不宣称模型执行 skill 或认证远端插件已验证。
+
+最终代码审查补充 CODEX_HOME 反例：尾空格目录必须按原值扫描；纯空白是相对路径，active 报错；含符号链接和 `..` 的根在 active dry-run/launch 前拒绝，none 仍按真实 CLI 语义加载。修复前 `13a7ba4` 产物在新增 space-home-active 断言失败，未允许 skill 确实进入 prompt；修复后完整矩阵须重新执行，最终身份见 docs/verification.md。

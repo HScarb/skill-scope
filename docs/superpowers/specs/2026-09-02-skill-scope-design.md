@@ -77,7 +77,7 @@ Claude/OpenCode 按有效名控制，Codex 0.153.1 按 canonical SKILL.md 路径
 - Claude 允许 skill 条目 symlink/Junction，只检查直接 SKILL.md。Codex 根内部递归，跳隐藏目录，跟随中间目录及 skill 文件链接；已有 SKILL.md 仍继续向下。以当前递归链的 canonical 目录检测环并停止该分支，不全局丢弃其他 discovery 别名。
 - 目录不存在（ENOENT）是正常情况。已进入的目录出现 EACCES、断链等错误时抛出清单错误。
 
-Codex 根解析由 host 提供独立路径值，不改 host.Env 或 Claude HOME。Unix 使用 env.Home；Windows 使用 `windows.KnownFolderPath(&windows.FOLDERID_Profile, 0)`，HOME/USERPROFILE 不等价。该 home 同时用于全局 `.agents/skills` 与缺省 `.codex`；显式 CODEX_HOME 沿已有 trim/绝对目录校验。Unix 系统配置 `/etc/codex/config.toml` 与 skill 根 `/etc/codex/skills` 可注入；Windows 无这两个 Unix 来源。仅 active inventory/目标为 Claude 的 foreign 扫描调用 resolver，构造/help/none 不读取 agent 元数据。
+Codex 根解析由 host 提供独立路径值，不改 host.Env 或 Claude HOME。Unix 使用 env.Home；Windows 使用 `windows.KnownFolderPath(&windows.FOLDERID_Profile, 0)`，HOME/USERPROFILE 不等价。该 home 同时用于全局 `.agents/skills` 与缺省 `.codex`；显式非空 CODEX_HOME 保留原始空白并须为绝对目录；纯空白值不等同缺省。Codex 平台 home 与 CODEX_HOME 均拒绝含 `..` 路径段，避免符号链接解析前的字面 Clean 改变实际来源；尾空格目录按原值扫描。Unix 系统配置 `/etc/codex/config.toml` 与 skill 根 `/etc/codex/skills` 可注入；Windows 无这两个 Unix 来源。仅 active inventory/目标为 Claude 的 foreign 扫描调用 resolver，构造/help/none 不读取 agent 元数据。
 
 Codex 收集 system、User `CODEX_HOME/config.toml`、cwd 到 git 根的每级 `.codex/config.toml` 的 plugins 键并集；项目不可信时也保守收集潜在键，不修改信任、不复刻模型/MCP 合并。运行时 `-p/--profile` 拒绝；旧 `config.profile` 在 0.153.1 不支持，存在则报 unsupported-source。bundled 的 `CODEX_HOME/skills/.system` 不进入普通 inventory 或 foreign projection；不承诺 bundled=true 强制恢复用户单项禁用的内置 skill。
 
