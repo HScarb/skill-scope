@@ -12,7 +12,7 @@
 
 **Spec 对应：** `docs/superpowers/specs/2026-09-02-skill-scope-design.md` §4.1/§4.4、§5.3、§6.2/§6.3/§6.6、§7.1/§7.5、§8.3、§9、§10、§11.1/§11.2、§14.2/§14.7。
 
-**执行状态：** 2026-09-06 Tasks 1–16 已实施并通过逐任务 Spec/质量审查；最终代码审查发现的非法投影 basename 已修复。Task 17 的本地门禁、88.3% 覆盖率、干净 clone 和 PR #2 的三平台 CI 全部通过。绑定 `22fa1f6` 的真实 Claude 初始化、原生调用、禁用项、bundled 和会话回收已验证，投影资源与允许插件的模型复验遇 provider 403 额度不足，Step 4 保留未完成。详细证据见 `docs/verification.md`。
+**执行状态：** 2026-09-06 Tasks 1–17 全部完成。实现通过逐任务 Spec/质量审查，本地门禁、88.3% 覆盖率、干净 clone 和 PR #2 三平台 CI 通过。用户更换 provider 后，绑定 `22fa1f6` 的投影资源实际 Read 和允许插件调用均复验成功，补齐 Task 17 最后一项；真实初始化、原生允许/禁止、插件禁止、bundled 和会话回收证据保持有效。详细证据见 `docs/verification.md`。
 
 **审查修订（2026-09-05）：** Task 9/14/16 补外来入口读取前的类型检查、有界读取及拒绝原因传递；Task 10–12 补大小写冲突与投影文件禁止覆盖写入；Task 17 的真实验收绑定本次提交构建出的绝对路径。执行复选框按实际完成情况更新。
 
@@ -1331,7 +1331,7 @@ git commit -m "test: cover complete Claude isolation end to end"
 
 ### Task 17: 质量门禁、真实 Claude 验收与文档交付
 
-**收尾记录（2026-09-06）：** 冻结类型、main 和依赖文件对基线无改动。Windows worktree 与 Linux 独立 clone 的 `make check` 通过；Windows statements 覆盖率 88.3%。CI 首轮暴露覆盖率 helper 环境、跨平台路径身份、os.Root symlink 错误和 macOS socket 路径问题，`16cc4c9`、`22fa1f6` 仅修测试并通过双审查。独立 clone 验证前移至文档提交前，用于核实真实构建身份；Windows worktree 在 WSL 的 VCS stamp 误指主工作区，改为 Linux clone 构建后 `vcs.revision=22fa1f6`、`vcs.modified=false`。真实调用的实验桥接显式使用 UTF-8；provider 额度不足时停止模型复验，文档状态暂不写 complete，不以旧产物成功替代本次构建证据。
+**收尾记录（2026-09-06）：** 冻结类型、main 和依赖文件对基线无改动。Windows worktree 与 Linux 独立 clone 的 `make check` 通过；Windows statements 覆盖率 88.3%。CI 首轮暴露覆盖率 helper 环境、跨平台路径身份、os.Root symlink 错误和 macOS socket 路径问题，`16cc4c9`、`22fa1f6` 仅修测试并通过双审查。独立 clone 验证前移至文档提交前，用于核实真实构建身份；Windows worktree 在 WSL 的 VCS stamp 误指主工作区，改为 Linux clone 构建后 `vcs.revision=22fa1f6`、`vcs.modified=false`。真实调用的实验桥接显式使用 UTF-8；首次因 provider 额度不足保留未完成项，用户更换 provider 后使用同一已核对 SHA-256 的产物补验成功，不以旧产物成功替代本次构建证据。
 
 **CI 快照修复：** `d8b32f6` 仅增加受控 fixture 的差异诊断，确认 Windows 目录枚举返回创建子项前的旧 mtime；本机 Junction overlay 重复复现后，`60e0456` 改为只读目录句柄 Stat 采集测试快照，保留全部模式、mtime、正文和路径比较。Windows 连续 50 次及 WSL host race 通过，生产 Inspector 不变。最终 [CI run 34008500885](https://github.com/HScarb/skill-scope/actions/runs/34008500885) 的 Ubuntu/macOS race+build、Windows test+build、lint 全绿。
 
@@ -1368,7 +1368,7 @@ Windows 中 make 按 README 从 Git Bash 运行；PowerShell 覆盖率参数若�
 
 按会话授权推送功能分支并建立以 main 为 base 的 PR，描述行为、spec 范围、验证命令和 Windows 边界。当前 CI 的 push 只监听 main，功能分支通过 pull_request 触发。确认 Ubuntu/macOS race、Windows test/build、lint 全绿并记录 run URL；只 push 分支不能称 CI 已验证。
 
-- [ ] **Step 4: 用 skope 验收真实 Claude**
+- [x] **Step 4: 用 skope 验收真实 Claude**
 
 先在执行真实验收的 Linux/macOS/WSL 环境中，从实施 worktree 的仓库根构建本次代码。确认 cmd/internal/go.mod/go.sum 的实现改动均已提交；文档可以待本 Task 收尾提交。`make check` 仅在仓库根生成 skope，不会安装到 PATH，不能用裸 `skope` 或切到 fixture 后的 `./skope` 代替本次产物。
 
@@ -1400,7 +1400,7 @@ cd "$FIXTURE/repo"
 
 - [x] **Step 5: 更新用户文档与实施记录**
 
-全部门禁通过后将 README 状态改为 Phase 2 complete；当前明确标注真实模型复验未完成。已给出 `plugins.claude` + bundled + foreign skill 示例。明确：
+全部门禁通过，README 状态已改为 Phase 2 complete。已给出 `plugins.claude` + bundled + foreign skill 示例。明确：
 
 - plugin 允许是整体 plugin；不会由 skills 中出现某个 ID 自动开启。
 - 本期外来来源只有两条已前移的全局行；其他来源仍属后续阶段。

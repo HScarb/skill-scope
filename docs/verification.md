@@ -150,7 +150,7 @@ marketplace JSON 为 `{"name":"skope-fixture","owner":{"name":"skope-test"},"plu
 | cache-only | 真实 `plugin install cache-plugin@skope-git-fixture --scope user` 从本地 catalog 安装；首次预置错误 installLocation 有刷新告警，修正 clone 到标准位置后 update 成功。`--settings <F>/cache-only.json -p /cache-plugin:check --max-turns 1 --verbose --output-format stream-json` 的 init.path 等于 list.installPath 的 cache，result 返回 CACHE_PLUGIN_09fc42ab |
 | cache-scopes-root / cache-native-paths | 仅 fixture installed_plugins.json（version=2, plugins[id]=记录数组）换成 user/project/local 三条、分别指向 1.0.0/1.0.1/1.0.2，各有不同正文 marker；projectPath=repo。记录原序 user 在前时，repo 调用选 1.0.0，返回 CACHE_USER_09fc42ab |
 | cache-reverse / cache-reverse-other | 仅反转记录数组为 local/project/user。同样 cache-only 命令在 repo 选 1.0.2 并返回 CACHE_LOCAL_09fc42ab；other 选 1.0.0 并返回 CACHE_USER_09fc42ab，证明按原序首个适用项，不能排序 scope/version |
-| cache-reverse-nested | 同命令 cwd=repo/sub，init.plugins.path=1.0.2，说明子目录仍适用 projectPath；随后 provider 返回 403 额度不足，最终模型调用未完成。路径结论来自 init，未声称 marker 成功；此后停止模型调用，Task 17 真实验收需恢复 provider 额度 |
+| cache-reverse-nested | 同命令 cwd=repo/sub，init.plugins.path=1.0.2，说明子目录仍适用 projectPath；随后 provider 返回 403 额度不足，最终模型调用未完成。路径结论来自 init，未声称 marker 成功；当时停止模型调用。Task 17 的后续复验见下方记录 |
 
 cache-only.json 与 auto-off 相同，额外 cache-plugin@skope-git-fixture=true。真实 list fixture 保留原字段并以 `/fixture` 替换临时绝对根；目录来源元数据另存 package-local fixture。仅支持已明确定位的根；未知关键来源或含糊记录 fail-closed，不猜版本，也不运行额外模型 probe。所有控制组以 init 列表、路径及 CLI 确定性拒绝为主，marker 只辅助确认已执行的允许项。
 
@@ -317,16 +317,17 @@ Skill "blocked" is disabled via skillOverrides. Remove the override from your se
 
 ### Phase 2
 
-- 日期：2026-09-06；Tasks 1–16 的实现及逐任务 Spec/质量审查通过。Task 17 尚未全部关闭，最终构建的投影资源读取与允许插件模型复验被 provider 403 额度不足阻断。
+- 日期：2026-09-06；Phase 2 实现、逐任务 Spec/质量审查、本地与 CI 门禁及真实验收全部通过。Task 17 首次因 provider 403 额度不足暂停；用户更换 provider 后，最终构建的投影资源读取与允许插件调用均复验成功。
 - 实现源码：`368f3ffda1cb68c09abd89a13bfb15e64debb2f6`；真实复验及独立 clone：`22fa1f6063dc37611ae14b693f5bc394e45fb460`。后者相对前者仅修改测试，未改变产品行为。
 - 冻结审计：对 `27d22be` 检查 `Skill`、`Location`、`Adapter`、`Capabilities`、`LaunchPlan`、`Inventory`，结构不变；`cmd/skope/main.go`、`go.mod`、`go.sum` 无 diff。depguard 通过。
 - 本地 Windows Go 1.27.1：`make check` 的 gofmt/vet/lint/test/build 全部通过，golangci-lint v2.13.2 为 0 issues。`go test -count=1 '-coverprofile=coverage.txt' ./...` 及 `go tool cover '-func=coverage.txt'` 通过，总 statements **88.3%**。
 - 包覆盖率：Claude 94.9%、CLI 92.1%、launch 95.3%、proc 90.9%、projection 93.7%、skill 95.4%、termsafe 100%。host 67.9%、session 79.7%；部分宿主包装、平台错误分支及子进程执行不计入当前进程覆盖率，未排除业务文件或补无意义 getter 测试抬高数字。
-- PR：[draft #2](https://github.com/HScarb/skill-scope/pull/2)。首轮 [run 34007742994](https://github.com/HScarb/skill-scope/actions/runs/34007742994) 暴露测试辅助进程缺少 GOCOVERDIR、Windows/macOS 路径别名、Windows os.Root symlink 错误差异及 macOS socket 路径过长。`16cc4c9` 与 `22fa1f6` 修复测试，保留安全拒绝、原内容不变、精确流长度和超时断言。
+- PR：[#2](https://github.com/HScarb/skill-scope/pull/2)。首轮 [run 34007742994](https://github.com/HScarb/skill-scope/actions/runs/34007742994) 暴露测试辅助进程缺少 GOCOVERDIR、Windows/macOS 路径别名、Windows os.Root symlink 错误差异及 macOS socket 路径过长。`16cc4c9` 与 `22fa1f6` 修复测试，保留安全拒绝、原内容不变、精确流长度和超时断言。
 - 第二轮 [run 34008029558](https://github.com/HScarb/skill-scope/actions/runs/34008029558)：Ubuntu/macOS race 与 build、lint 通过；Windows 的只读投影源快照测试失败。诊断提交 `d8b32f6` 的 [run 34008182531](https://github.com/HScarb/skill-scope/actions/runs/34008182531) 显示仅目录 mtime 从旧值变为子链接创建时间。本机 Junction overlay 重复复现后，`60e0456` 将测试的普通目录元数据改为只读句柄 Stat，保留路径、模式、mtime、正文的完整比较；修复后本机连续 50 次通过，WSL 真实 symlink host race 通过。上述 CI 四个 job 的 Go 实际版本均为 1.24.0。
 - 最终代码 [run 34008500885](https://github.com/HScarb/skill-scope/actions/runs/34008500885)（`60e0456`）全部通过：Ubuntu/macOS race+build、Windows test+build、lint。此时再次运行 Windows 全仓覆盖率测试通过，仍为 88.3%。相对真实验收产物 `22fa1f6`，只增加上述快照测试诊断及修复，生产文件不变。
 - 干净 clone：`git clone --no-local --branch codex/phase2-claude-completion /mnt/d/workspace/vibe/skill-scope /var/tmp/skope-phase2-final-01a070a2/source`，HEAD `22fa1f6`。WSL Go 1.27.1 的 `make check` 全通过；lint 首次缺两个 Linux 专用模块的本地缓存，补下载固定版本后通过，未改 go.mod/go.sum。
 - clone 内单独构建的绝对 `source/skope` 与 fakeagent 验证 `claude -s dev --dry-run`：仅一次精确 `plugin list --json`，1 native / 1 projected / 1 unavailable，插件一开一关、bundled 关闭，只列投影文件路径、不含正文、不创建 session。使用最小显式环境，probe 记录与之完全一致，clone 前后均干净；证据在 `/var/tmp/skope-phase2-clean-fixture-01a070a2/`。
+- 交付文档提交 `089a5e9` 的 [run 34008624425](https://github.com/HScarb/skill-scope/actions/runs/34008624425) 同样全绿。干净 clone 快进至该提交后，重新 `make check` 及独立 fake-agent dry-run 全通过；后续关闭状态仅修改文档，产品实现不变。
 
 #### 真实 Claude：构建身份与隔离方式
 
@@ -401,8 +402,11 @@ done
 | 原生禁止项 | 退出 0，明确报告 `Skill "blocked-check" is disabled via skillOverrides...`；未返回 blocked marker |
 | 插件禁止项 | 退出 0，明确报告 `Unknown command: /blocked-plugin:check`；未返回 blocked marker |
 | bundled 开关 | false 时可选 bundled skills 消失、doctor 保留；true 时出现 verify、debug、simplify、batch、loop 等；未调用这些 bundled skills |
-| 投影资源/允许插件模型调用 | 重复实验遇 provider 403；早期输出又暴露桥接编码不一致，显式 UTF-8 修复后确认是 provider 额度不足。最终构建尚无成功 Read 结果和允许插件 marker，不以 init 或旧产物结果替代 |
+| 投影资源模型调用 | 更换 provider 后退出 0，Read 的 tool_use 路径指向 `sessions/claude-20260906-112355-7f71/claude/addDir/.claude/skills/projected-check/references/marker.md` 的 Windows UNC 映射；对应 tool_result 及最终 result 均含 `SKOPE_PROJECTED_RESOURCE_01a070a2`，is_error=false |
+| 允许插件模型调用 | 同一产物退出 0，最终 result 为 `SKOPE_ALLOWED_PLUGIN_01a070a2`，is_error=false；init.plugins 仅包含 fixture 中的 allowed-plugin |
 | session 生命周期 | 每次退出保留当前 session，下一次启动回收前次；最终 dry-run 退出 0，sessions 数量由 1 变 0 |
 | dry-run 配置 | blocked-check=off、native-check/projected-check=on；allowed-plugin=true、blocked-plugin=false；disableBundledSkills=true；只显示投影路径，不显示正文 |
 
-后续仅需在 provider 可用时，用上述绑定产物补跑 `/projected-check` 的实际 Read 工具结果及 `/allowed-plugin:check` 的 marker，再关闭 Task 17 真实验收项。检查当前 Windows fixture 与 skope-home 的 30 个文件，未发现现用 AUTH_TOKEN/API_KEY 值。实验脚本、无凭据 fixture、脱敏输出与 Linux 构建暂留，便于继续复验；不纳入产品提交。
+最终补验继续使用上述完整命令、Claude 2.1.259、隔离 fixture 和绑定 `22fa1f6` 的产物，运行前 version 与 SHA-256 均与记录一致。bridge 每次读取当前 provider 所需 env，未复制用户配置；两次调用的 stderr 含 Claude 的 `unrecognized_model` 诊断，均正常完成且 is_error=false。该诊断不作为 skill 生效依据，结论来自实际 Read 工具结果和准确 marker。最后再次 dry-run 退出 0，回收剩余 session 至 0；Task 17 Step 4 关闭。
+
+首次额度不足及桥接编码问题保留为实验历史，不再是待办。补验后检查 Windows fixture 与 skope-home 的 33 个文件，未发现当前 provider 的 AUTH_TOKEN/API_KEY 值。实验脚本、fixture 和脱敏输出暂留供交付复核，不纳入产品提交。

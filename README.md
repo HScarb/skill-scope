@@ -5,8 +5,7 @@ Session-scoped skill whitelisting for coding agents.
 legacy commands, plugins, bundled skills, and eligible foreign skills, without
 changing persistent agent settings.
 
-**Status:** pre-alpha. Phase 2 is implemented; final verification is in progress.
-The final-build Claude projection/plugin model checks await provider availability.
+**Status:** pre-alpha. Phase 2 implementation and verification are complete.
 Linux/macOS support launching Claude. Windows supports executable-based probes
 and dry-run; production session process inspection, final handoff, and command
 script resolution remain part of Phase 6. Codex/OpenCode adapters and interactive
