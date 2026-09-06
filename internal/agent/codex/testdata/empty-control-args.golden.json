@@ -1,0 +1,10 @@
+[
+  "-c",
+  "skills.config=[]",
+  "-c",
+  "skills.bundled.enabled=false",
+  "-c",
+  "plugins={}",
+  "-c",
+  "features.remote_plugin=false"
+]

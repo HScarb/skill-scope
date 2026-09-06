@@ -586,7 +586,7 @@ Task 7 实施证据（2026-09-06）：两条定向红灯命令分别出现 5 个
 - Create: `internal/agent/codex/testdata/control-args.golden.json`、`internal/agent/codex/testdata/empty-control-args.golden.json`。
 - Modify: `.gitattributes`（Codex golden 固定 LF）。
 
-- [ ] **Step 1: 写控制参数矩阵**
+- [x] **Step 1: 写控制参数矩阵**
 
 选择 `allow`，设置 bundled=false，允许 `keep@market`、`missing@market`，安装/配置另有 `block@market`。fixture 含普通 allow/block 与 keep 插件 skill（`/fixture/keep/SKILL.md`）时基准 argv 为：
 
@@ -607,13 +607,13 @@ Task 7 实施证据（2026-09-06）：两条定向红灯命令分别出现 5 个
 
 路径用真实 temp 文件验证绝对与 symlink/Junction 解析，再以 fake canonicalizer 做跨平台 golden。测试引号、反斜杠、中文、空格、制表/换行、非 BMP 字符；每个 `-c` 值用 go-toml 解码回结构后与原值比较，不能只断言字符串含反斜杠。Windows 路径和 Unix 路径分开，不把 Unix 绝对路径交给 Windows filepath 当真实路径。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/agent/codex -run 'TestCodexPlan|TestCanonical' -count=1
 ```
 
-- [ ] **Step 3: 实现路径集合与 TOML 编码**
+- [x] **Step 3: 实现路径集合与 TOML 编码**
 
 允许集合来自选中 native ID 的普通 Codex location；对 inventory 中每一个普通与 plugin Codex location 调用 canonicalizer，包括选中项；plugin path 的 allowed 直接来自 Options.Plugins，不依赖 Resolved skill 选择。将结果转换为本平台绝对路径；空路径、非绝对路径、canonicalize 失败、解析后与 inventory.RealPath 指向不同目标时 fail-closed，避免扫描后链接改向造成误禁用。保留实际大小写，按最终路径字符串稳定排序。
 
@@ -652,7 +652,7 @@ Plan 的输出顺序固定为 skills.config、bundled、一个 plugins inline ta
 
 增加 `var _ agent.Adapter = Adapter{}`。所有路径唯一；用真实 User deny 对照保持 path=true 覆盖语义，不实现数组替换假设。
 
-- [ ] **Step 4: 运行绿灯并核对 golden**
+- [x] **Step 4: 运行绿灯并核对 golden**
 
 ```sh
 go test ./internal/agent/codex ./internal/agent/claude -count=1
@@ -661,12 +661,14 @@ git diff --check
 
 Expected：argv golden、TOML 往返、路径改向错误均 PASS；`Plan.Files` 长度为 0，环境无 CODEX_HOME 改写。拒绝更改源目录或创建配置文件来让测试通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/agent/codex/plan.go internal/agent/codex/paths.go internal/agent/codex/plan_test.go internal/agent/codex/paths_test.go internal/agent/codex/testdata/control-args.golden.json internal/agent/codex/testdata/empty-control-args.golden.json .gitattributes
 git commit -m "feat: generate Codex path and plugin isolation overrides"
 ```
+
+Task 8 实施证据（2026-09-06）：定向测试先确认缺少 Plan，空桩随后触发参数矩阵、非法插件 ID、canonical 路径校验和 TOML 往返行为失败。最小实现后 Windows Codex/Claude 回归、全仓 go test -short ./... 通过；固定 golangci-lint v2.13.2 对新增/修改 Go 文件执行 gofmt/goimports，Codex 包 lint 为 0 issues。首次 lint 检出 real 遮蔽内置函数，改名 canonical 后通过。WSL Ubuntu 离线 go test -race ./internal/agent/codex -count=1 通过。真实临时文件及 Windows junction/Linux symlink 覆盖 canonical 别名折叠、禁用入口改向和删除失败；生产 Scanner→Inventory→Plan fixture 证明 .system 不进入路径数组且 config.toml 字节不变。golden 仅在断言前将本机绝对临时根替换为 /fixture，不弱化生产 filepath.IsAbs。覆盖同 ID 多路径、同名不同 ID、普通/多插件共享路径 OR、禁用插件不随技能 ID 开启、missing/unavailable 不发明路径、固定四对参数、稳定排序、输入不变、nil session 与空 Files/Env。路径及任意字符串键使用已固定 go-toml 语义往返，包含 Unicode、引号、反斜杠、控制字符及非法 UTF-8；生产插件 ID 仍严格校验。export_test.go 仅追加私有编码函数的测试别名。未执行真实 Codex、未读取真实用户配置；最终 handoff 和真实 skope 验收仍属后续任务。
 
 ### Task 9: Codex 冲突参数检测与值保密
 
