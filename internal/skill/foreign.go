@@ -6,8 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"math"
-	"slices"
-	"strings"
 
 	"github.com/scarb/skope/internal/host"
 )
@@ -19,6 +17,10 @@ type ScanRejection struct {
 }
 
 func (s Scanner) ScanForeignGlobals(env host.Env, maxBytes int64) (ScanResult, error) {
+	return s.ScanForeignRoots(foreignGlobalRoots(env), maxBytes)
+}
+
+func (s Scanner) ScanForeignRoots(roots []Root, maxBytes int64) (ScanResult, error) {
 	if maxBytes <= 0 {
 		return ScanResult{}, errors.New("foreign scan requires a positive byte limit")
 	}
@@ -27,57 +29,47 @@ func (s Scanner) ScanForeignGlobals(env host.Env, maxBytes int64) (ScanResult, e
 	}
 	var result ScanResult
 	var locations []Location
-	for _, root := range foreignGlobalRoots(env) {
-		entries, err := s.FS.ReadDir(root.Path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return ScanResult{}, fmt.Errorf("read directory %s: %w", root.Path, err)
-		}
-		slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
-		for _, entry := range entries {
-			isSymlink := entry.Type()&fs.ModeSymlink != 0
-			if !entry.IsDir() && !isSymlink {
-				continue
-			}
-			name := joinPath(root.Path, entry.Name(), "SKILL.md")
-			_, err := s.FS.Lstat(name)
-			if errors.Is(err, fs.ErrNotExist) && !isSymlink {
-				continue
-			}
-			if err != nil {
-				return ScanResult{}, fmt.Errorf("lstat %s: %w", name, err)
-			}
+	for _, root := range roots {
+		err := s.visitRoot(root, func(root Root, name, basename string) error {
 			info, err := s.FS.Stat(name)
 			if err != nil {
-				return ScanResult{}, fmt.Errorf("stat %s: %w", name, err)
+				return fmt.Errorf("stat %s: %w", name, err)
 			}
 			realPath, err := s.FS.EvalSymlinks(name)
 			if err != nil {
-				return ScanResult{}, fmt.Errorf("resolve %s: %w", name, err)
+				return fmt.Errorf("resolve %s: %w", name, err)
 			}
-			location := Location{Kind: root.Kind, Source: root.Source, Level: root.Level, DiscoveryPath: name, RealPath: cleanPath(realPath)}
+			location := locationFor(root, name, realPath)
 			reason := foreignFileRejection(info, maxBytes)
 			if reason == "" {
 				var contents []byte
 				contents, reason, err = s.readForeignFile(name, maxBytes)
 				if err != nil {
-					return ScanResult{}, err
+					return err
 				}
 				if reason == "" {
-					frontmatter, err := parseFrontmatterName(contents)
-					if err != nil {
-						return ScanResult{}, fmt.Errorf("parse frontmatter %s: %w", name, err)
+					frontmatter := ""
+					if root.Kind == KindSkill {
+						frontmatter, err = parseFrontmatterName(contents)
+						if err != nil {
+							return fmt.Errorf("invalid skill metadata %s", name)
+						}
 					}
 					location.FrontmatterName = frontmatter
-					location.Names = rootNames(root, entry.Name(), frontmatter)
+					location.Names = rootNames(root, basename, frontmatter)
+					if !codexDescriptionValid(contents) {
+						delete(location.Names, AgentCodex)
+					}
 				}
 			}
 			locations = append(locations, location)
 			if reason != "" {
 				result.Rejections = append(result.Rejections, ScanRejection{Source: root.Source, DiscoveryPath: name, Reason: reason})
 			}
+			return nil
+		})
+		if err != nil {
+			return ScanResult{}, err
 		}
 	}
 	result.Skills, result.Collisions = Build(locations)

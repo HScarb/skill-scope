@@ -11,7 +11,15 @@ import (
 	"github.com/scarb/skope/internal/host"
 )
 
+type ScanMode uint8
+
+const (
+	DirectChildren ScanMode = iota
+	CodexRecursive
+)
+
 type Root struct {
+	ScanMode    ScanMode
 	Path        string
 	Kind        Kind
 	Level       Level
@@ -29,23 +37,19 @@ func foreignGlobalRoots(env host.Env) []Root {
 		codexHome = joinPath(env.Home(), ".codex")
 	}
 	return []Root{
-		{Path: joinPath(env.Home(), ".agents", "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceAgents, VisibleTo: []Agent{AgentCodex, AgentOpenCode}},
-		{Path: joinPath(codexHome, "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceCodex, VisibleTo: []Agent{AgentCodex}},
+		{Path: joinPath(env.Home(), ".agents", "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceAgents, VisibleTo: []Agent{AgentCodex, AgentOpenCode}, ScanMode: CodexRecursive},
+		{Path: joinPath(codexHome, "skills"), Kind: KindSkill, Level: LevelGlobal, Source: SourceCodex, VisibleTo: []Agent{AgentCodex}, ScanMode: CodexRecursive},
 	}
 }
 
 func claudeScanRoots(fileSystem FileSystem, env host.Env) ([]Root, string, error) {
-	cwd := cleanPath(env.Cwd())
-	projectRoot, found, err := findGitRoot(fileSystem, cwd)
+	projectRoot, directories, err := ProjectDirectories(fileSystem, env.Cwd())
 	if err != nil {
 		return nil, "", err
 	}
-	if !found {
-		projectRoot = cwd
-	}
 
 	var roots []Root
-	for _, directory := range projectDirectories(projectRoot, cwd) {
+	for _, directory := range directories {
 		scope, err := relativePath(projectRoot, directory)
 		if err != nil {
 			return nil, "", fmt.Errorf("resolve scope for %s from %s: %w", directory, projectRoot, err)

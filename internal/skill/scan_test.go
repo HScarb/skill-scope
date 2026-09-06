@@ -634,7 +634,7 @@ func mustSymlink(t *testing.T, target, link string) {
 
 func TestScannerExplicitRootsCarryNamesAndPluginMetadata(t *testing.T) {
 	t.Parallel()
-	fsys := newMapFS(fstest.MapFS{"plugins/skills/review/SKILL.md": file("# review"), "shared/skills/check/SKILL.md": file("# check"), "commands/run.md": file("run")})
+	fsys := newMapFS(fstest.MapFS{"plugins/skills/review/SKILL.md": file("---\ndescription: review\n---\n# review"), "shared/skills/check/SKILL.md": file("---\ndescription: check\n---\n# check"), "commands/run.md": file("run")})
 	roots := []skill.Root{
 		{Path: "/plugins/skills", Kind: skill.KindSkill, Level: skill.LevelPlugin, Source: skill.SourceClaude, VisibleTo: []skill.Agent{skill.AgentClaude}, PluginID: "p@m", PluginAgent: skill.AgentClaude, NamePrefix: "namespace"},
 		{Path: "/shared/skills", Kind: skill.KindSkill, Level: skill.LevelGlobal, Source: skill.SourceAgents, Scope: "app", VisibleTo: []skill.Agent{skill.AgentClaude, skill.AgentCodex, skill.AgentOpenCode}},
@@ -665,7 +665,7 @@ func TestScannerExplicitRootsCarryNamesAndPluginMetadata(t *testing.T) {
 }
 func TestScannerExplicitForeignRootKeepsManifestCandidate(t *testing.T) {
 	t.Parallel()
-	fsys := newMapFS(fstest.MapFS{"skills/review/.claude-plugin/plugin.json": file(`{"name":"p"}`), "skills/review/SKILL.md": file("# review")})
+	fsys := newMapFS(fstest.MapFS{"skills/review/.claude-plugin/plugin.json": file(`{"name":"p"}`), "skills/review/SKILL.md": file("---\ndescription: review\n---\n# review")})
 	got, err := (skill.Scanner{FS: fsys}).ScanRoots([]skill.Root{{Path: "/skills", Kind: skill.KindSkill, Level: skill.LevelGlobal, Source: skill.SourceAgents, VisibleTo: []skill.Agent{skill.AgentCodex}}})
 	if err != nil || len(got.Skills) != 1 {
 		t.Fatalf("skills=%#v error=%v", got, err)
@@ -675,8 +675,8 @@ func TestScannerExplicitForeignRootKeepsManifestCandidate(t *testing.T) {
 func TestScannerExplicitRootsUseEachAgentsEffectiveSkillName(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct{ name, contents, want string }{
-		{name: "frontmatter", contents: "---\nname: effective-name\n---\n# skill", want: "effective-name"},
-		{name: "missing frontmatter", contents: "# skill", want: "directory-name"},
+		{name: "frontmatter", contents: "---\nname: effective-name\ndescription: valid\n---\n# skill", want: "effective-name"},
+
 		{name: "missing name", contents: "---\ndescription: example\n---\n# skill", want: "directory-name"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
