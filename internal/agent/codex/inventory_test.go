@@ -244,3 +244,93 @@ func TestCodexInventoryRejectsEachMissingDependency(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexInventoryCanonicalAliases(t *testing.T) {
+	t.Parallel()
+	location := func(discovery, canonical, plugin string) skill.Location {
+		loc := inventoryLocation(discovery, "same-name")
+		loc.RealPath = canonical
+		if plugin != "" {
+			loc.Level = skill.LevelPlugin
+			loc.PluginID = plugin
+			loc.PluginAgent = skill.AgentCodex
+		}
+		return loc
+	}
+	ordinary := func(id, discovery, canonical string) skill.Skill {
+		return skill.Skill{ID: id, Locations: []skill.Location{location(discovery, canonical, "")}}
+	}
+	plugin := func(id, discovery, canonical, pluginID string) skill.Skill {
+		return skill.Skill{ID: id, Locations: []skill.Location{location(discovery, canonical, pluginID)}}
+	}
+	for _, tt := range []struct {
+		name     string
+		skills   []skill.Skill
+		controls string
+	}{
+		{"same ordinary ID", []skill.Skill{ordinary("a", "/a", "/shared"), ordinary("a", "/b", "/shared")}, ""},
+		{"different ordinary IDs", []skill.Skill{ordinary("b", "/b", "/shared"), ordinary("a", "/a", "/shared")}, "ordinary a, ordinary b"},
+		{"same name distinct targets", []skill.Skill{ordinary("a", "/a", "/one"), ordinary("b", "/b", "/two")}, ""},
+		{"ordinary and plugin same ID", []skill.Skill{ordinary("a", "/a", "/shared"), plugin("a", "/b", "/shared", "p@m")}, "ordinary a, plugin p@m"},
+		{"two plugins same skill ID", []skill.Skill{plugin("a", "/a", "/shared", "p@m"), plugin("a", "/b", "/shared", "q@m")}, "plugin p@m, plugin q@m"},
+		{"same plugin different skill IDs", []skill.Skill{plugin("a", "/a", "/shared", "p@m"), plugin("b", "/b", "/shared", "p@m")}, ""},
+		{"empty canonical paths", []skill.Skill{ordinary("a", "/a", ""), ordinary("b", "/b", "")}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, allowed := range [][]string{nil, {"p@m"}} {
+				scanner := inventoryScanner{native: func(host.Env, host.CodexPaths) (skill.ScanResult, error) {
+					return skill.ScanResult{Skills: tt.skills}, nil
+				}, roots: func([]skill.Root) (skill.ScanResult, error) { return skill.ScanResult{}, nil }}
+				source := inventorySource(func(context.Context, host.Env, host.CodexPaths) (codex.CatalogSnapshot, error) {
+					return codex.CatalogSnapshot{InstalledIDs: []string{"p@m", "q@m"}, Warnings: []string{"catalog warning"}}, nil
+				})
+				a := codex.New(scanner, source, inventoryCanonicalizer{}, codex.Options{Plugins: allowed, ResolvePaths: func(host.Env) (host.CodexPaths, error) { return host.CodexPaths{}, nil }})
+				got, err := a.Inventory(context.Background(), host.Env{})
+				want := []string{"catalog warning"}
+				if tt.controls != "" {
+					want = append(want, "Codex skills share canonical path \"/shared\" ("+tt.controls+"); allowing any control source allows this path")
+				}
+				if err != nil || !reflect.DeepEqual(got.Warnings, want) {
+					t.Fatalf("warnings=%v err=%v want=%v", got.Warnings, err, want)
+				}
+				skills, collisions := skill.Merge(tt.skills)
+				if !reflect.DeepEqual(got.Skills, skills) || !reflect.DeepEqual(got.Collisions, collisions) {
+					t.Fatal("alias warning changed identities or existing collisions")
+				}
+			}
+		})
+	}
+}
+
+func TestCodexInventoryCanonicalAliasesIgnoreForeignAndSortPaths(t *testing.T) {
+	a1 := inventoryLocation("/first-a", "a")
+	a1.RealPath = "/a"
+	a2 := a1
+	a2.DiscoveryPath = "/second-a"
+	z1 := inventoryLocation("/first-z", "z")
+	z1.RealPath = "/z"
+	z2 := z1
+	z2.DiscoveryPath = "/second-z"
+	foreign := inventoryLocation("/foreign", "")
+	foreign.RealPath = "/a"
+	otherPlugin := inventoryLocation("/other-plugin", "misleading-codex-name")
+	otherPlugin.RealPath = "/a"
+	otherPlugin.PluginAgent = skill.AgentClaude
+	otherPlugin.PluginID = "other@m"
+	skills := []skill.Skill{{ID: "z2", Locations: []skill.Location{z2}}, {ID: "a2", Locations: []skill.Location{a2}}, {ID: "a1", Locations: []skill.Location{a1, a1}}, {ID: "z1", Locations: []skill.Location{z1}}, {ID: "foreign", Locations: []skill.Location{foreign}}, {ID: "other", Locations: []skill.Location{otherPlugin}}}
+	scanner := inventoryScanner{native: func(host.Env, host.CodexPaths) (skill.ScanResult, error) {
+		return skill.ScanResult{Skills: skills}, nil
+	}, roots: func([]skill.Root) (skill.ScanResult, error) { return skill.ScanResult{}, nil }}
+	source := inventorySource(func(context.Context, host.Env, host.CodexPaths) (codex.CatalogSnapshot, error) {
+		return codex.CatalogSnapshot{}, nil
+	})
+	adapter := codex.New(scanner, source, inventoryCanonicalizer{}, codex.Options{ResolvePaths: func(host.Env) (host.CodexPaths, error) { return host.CodexPaths{}, nil }})
+	got, err := adapter.Inventory(context.Background(), host.Env{})
+	want := []string{
+		"Codex skills share canonical path \"/a\" (ordinary a1, ordinary a2); allowing any control source allows this path",
+		"Codex skills share canonical path \"/z\" (ordinary z1, ordinary z2); allowing any control source allows this path",
+	}
+	if err != nil || !reflect.DeepEqual(got.Warnings, want) {
+		t.Fatalf("warnings=%v err=%v", got.Warnings, err)
+	}
+}

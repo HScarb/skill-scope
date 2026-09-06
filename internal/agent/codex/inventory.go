@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/host"
@@ -69,7 +70,7 @@ func (a Adapter) Inventory(ctx context.Context, env host.Env) (agent.Inventory, 
 	slices.Sort(names)
 	pluginIDs := slices.Clone(snapshot.PluginIDs)
 	slices.Sort(pluginIDs)
-	warnings := slices.Clone(snapshot.Warnings)
+	warnings := append(slices.Clone(snapshot.Warnings), canonicalAliasWarnings(skills)...)
 	seen := make(map[string]bool)
 	for _, id := range a.options.Plugins {
 		if !seen[id] && !slices.Contains(snapshot.InstalledIDs, id) {
@@ -84,4 +85,43 @@ func cloneCodexPaths(paths host.CodexPaths) host.CodexPaths {
 	paths.AdminSkillRoots = slices.Clone(paths.AdminSkillRoots)
 	paths.SystemConfigPaths = slices.Clone(paths.SystemConfigPaths)
 	return paths
+}
+
+func canonicalAliasWarnings(skills []skill.Skill) []string {
+	groups := make(map[string]map[string]struct{})
+	for _, candidate := range skills {
+		for _, loc := range candidate.Locations {
+			if loc.Kind != skill.KindSkill || loc.RealPath == "" || loc.Names[skill.AgentCodex] == "" {
+				continue
+			}
+			control := "ordinary " + candidate.ID
+			if loc.Level == skill.LevelPlugin || loc.PluginID != "" || loc.PluginAgent != "" {
+				if loc.PluginAgent != skill.AgentCodex || loc.PluginID == "" {
+					continue
+				}
+				control = "plugin " + loc.PluginID
+			}
+			if groups[loc.RealPath] == nil {
+				groups[loc.RealPath] = make(map[string]struct{})
+			}
+			groups[loc.RealPath][control] = struct{}{}
+		}
+	}
+	var paths []string
+	for path, controls := range groups {
+		if len(controls) > 1 {
+			paths = append(paths, path)
+		}
+	}
+	slices.Sort(paths)
+	var warnings []string
+	for _, path := range paths {
+		var controls []string
+		for control := range groups[path] {
+			controls = append(controls, control)
+		}
+		slices.Sort(controls)
+		warnings = append(warnings, fmt.Sprintf("Codex skills share canonical path %q (%s); allowing any control source allows this path", path, strings.Join(controls, ", ")))
+	}
+	return warnings
 }

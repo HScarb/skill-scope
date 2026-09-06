@@ -533,7 +533,7 @@ Task 6 实施证据：定向测试先因缺少 codex.New/Options 编译失败；
 - Modify: `internal/agent/codex/inventory.go`、`internal/agent/codex/inventory_test.go`。
 - Test: `internal/launch/projection_test.go`。
 
-- [ ] **Step 1: 写分类和无检查调用测试**
+- [x] **Step 1: 写分类和无检查调用测试**
 
 | 选中 ID 的入口 | Codex 结果 |
 |---|---|
@@ -549,7 +549,7 @@ Task 6 实施证据：定向测试先因缺少 codex.New/Options 编译失败；
 
 别名 fixture 覆盖普通同 ID 同目标、普通不同 ID 同目标、同名不同目标、普通/plugin 同 ID 同目标、不同 PluginID 下同 ID 同目标，以及一个允许一个禁止的组合。告警按控制来源区分：普通入口的键为 (ordinary, skill.ID)，plugin 入口的键为 (plugin, PluginID)。同一 canonical 路径包含多个控制来源键时，由 Inventory 生成静态共享控制告警；同一普通 ID 的重复别名或同一 PluginID 内多个 skill ID 共用路径不新增该告警。已有 different-content/effective-name collision 不替代此告警。
 
-- [ ] **Step 2: 运行红灯**
+- [x] **Step 2: 运行红灯**
 
 ```sh
 go test ./internal/skill -run 'TestResolveCodex' -count=1
@@ -558,11 +558,11 @@ go test ./internal/agent/codex -run 'TestCodexInventoryCanonicalAliases' -count=
 
 Expected：现有提前返回使 plugin/command 原因断言失败；别名告警缺失。
 
-- [ ] **Step 3: 最小修改原因分支**
+- [x] **Step 3: 最小修改原因分支**
 
 先保持 native 优先，再在 `!opts.Projection` 分支检查候选类别并返回固定原因；不进入投影检查。Codex Inventory 按 RealPath 分组，对组内 (ordinary, skill.ID) / (plugin, PluginID) 控制来源键去重；超过一个键则在既有 Inventory.Warnings 中生成一次静态告警，说明这些来源共享路径开关、任一允许时该路径允许。告警不依赖本次是否已发生 true/false 冲突，因此无需向 Inventory 传入完整 skill 选择，也不声称修改 ID。测试输出稳定、不同 PluginID 同 ID 不漏警、同一控制键不重复警；Task 8 再复核 canonical 目标。
 
-- [ ] **Step 4: 运行绿灯与 Claude 回归**
+- [x] **Step 4: 运行绿灯与 Claude 回归**
 
 ```sh
 go test ./internal/skill ./internal/agent/codex ./internal/launch ./internal/agent/claude -count=1
@@ -570,13 +570,14 @@ go test ./internal/skill ./internal/agent/codex ./internal/launch ./internal/age
 
 Expected：全部 PASS；四状态计数仍按选中 ID，不按 location 数。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```sh
 git add internal/skill/resolve.go internal/skill/resolve_test.go internal/agent/codex/inventory.go internal/agent/codex/inventory_test.go internal/launch/projection_test.go
 git commit -m "fix: explain Codex unavailable skills and shared path controls"
 ```
 
+Task 7 实施证据（2026-09-06）：两条定向红灯命令分别出现 5 个原因断言失败和 3 个共享控制告警断言失败，确认旧行为统一返回 projection-unsupported 且未生成共享路径告警。最小实现后两条命令通过；Windows 四包回归 `go test ./internal/skill ./internal/agent/codex ./internal/launch ./internal/agent/claude -count=1`、全仓 `go test -short ./...` 通过。固定 golangci-lint v2.13.2 对五个修改 Go 文件执行 gofmt/goimports，四包 lint 为 0 issues；首次 lint 检出测试变量遮蔽内置 real，改名 canonical 后通过。WSL Ubuntu 离线 `go test -race ./internal/skill ./internal/agent/codex ./internal/launch -count=1` 通过。Projection=false 分类表使用 panic checker；launch 活动执行与 dry-run 使用 panic Inspector/Copier 覆盖 native、allowed/disabled plugin、其他 plugin、command、foreign、missing，投影数和文件数为零。launch fixture 初次误将重复 ID 写进 TOML，被现有配置验证拒绝后修正；重复选择去重由 Resolver 测试覆盖。别名矩阵覆盖同控制来源去重、普通/plugin 不同控制来源、空路径、外来来源排除、路径与来源稳定排序；原 IDs、collisions 保持。只使用 fake 依赖与元数据，不读取真实配置、不执行 Codex、不重新 canonicalize，Task 8 的 Plan 尚未实现。
 ### Task 8: 生成 TOML 路径全集、plugin、bundled 与 remote 参数
 
 **Files:**
