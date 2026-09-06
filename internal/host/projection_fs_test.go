@@ -158,6 +158,18 @@ func snapshotProjection(t *testing.T, dir string) map[string]string {
 		if err != nil {
 			return err
 		}
+		if info.IsDir() {
+			// Windows directory enumeration can retain timestamps from before
+			// fixture creation finished. Stat the handle for current metadata.
+			directory, err := os.Open(name)
+			if err != nil {
+				return err
+			}
+			info, err = directory.Stat()
+			if closeErr := directory.Close(); err != nil || closeErr != nil {
+				return errors.Join(err, closeErr)
+			}
+		}
 		value := info.Mode().String() + info.ModTime().String()
 		if info.Mode().IsRegular() {
 			b, err := os.ReadFile(name)
