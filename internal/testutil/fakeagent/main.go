@@ -21,6 +21,7 @@ const (
 )
 
 type record struct {
+	PID  int               `json:"pid"`
 	Args []string          `json:"args"`
 	Env  map[string]string `json:"env"`
 	Cwd  string            `json:"cwd"`
@@ -58,6 +59,7 @@ func run() int {
 	}
 
 	rec := record{
+		PID:  os.Getpid(),
 		Args: os.Args[1:],
 		Env:  environMap(os.Environ()),
 		Cwd:  cwd,

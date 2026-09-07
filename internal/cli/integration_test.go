@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/scarb/skope/internal/cli"
+	"github.com/scarb/skope/internal/config"
+	"github.com/scarb/skope/internal/launch"
 	"github.com/scarb/skope/internal/testutil"
 )
 
@@ -295,6 +299,13 @@ args = ["--from-config", "configured"]
 
 func (f *integrationFixture) run(t *testing.T, args []string, extraEnv map[string]string) (string, int) {
 	t.Helper()
+	reason, guardErr := binarySourceGuard(runtime.GOOS, args, os.Lstat)
+	if guardErr != nil {
+		t.Fatal(guardErr)
+	}
+	if reason != "" {
+		t.Skip(reason)
+	}
 	overrides := map[string]string{
 		"HOME":                  f.home,
 		"USERPROFILE":           f.home,
@@ -595,6 +606,99 @@ func TestIntegrationForeignProjectionCopiesTreeAndHandsOffFinalPaths(t *testing.
 			if generated.SkillOverrides["foreign"] != "on" || generated.SkillOverrides["allowed"] != "on" {
 				t.Fatalf("settings=%s", data)
 			}
+		}
+	}
+}
+
+func TestBinarySourceGuard(t *testing.T) {
+	for _, tt := range []struct {
+		name, platform string
+		args           []string
+		statErr        error
+		skip, fail     bool
+		calls          int
+	}{
+		{"windows active", "windows", []string{"claude", "-s", "dev"}, nil, true, false, 0},
+		{"windows dry", "windows", []string{"claude", "-s", "dev", "--dry-run"}, nil, true, false, 0},
+		{"passthrough none", "windows", []string{"claude", "-s", "dev", "--", "-s", "none"}, nil, true, false, 0},
+		{"none", "windows", []string{"claude", "-s", "none"}, nil, false, false, 0},
+		{"none equals", "windows", []string{"claude", "--set=none", "--dry-run"}, nil, false, false, 0},
+		{"help", "windows", []string{"help", "claude"}, nil, false, false, 0},
+		{"unix absent", "linux", []string{"claude", "-s", "dev"}, os.ErrNotExist, false, false, 2},
+		{"unix source exists", "linux", []string{"claude", "-s", "dev"}, nil, true, false, 1},
+		{"unix io failure", "linux", []string{"claude", "-s", "dev"}, os.ErrPermission, false, true, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var paths []string
+			reason, err := binarySourceGuard(tt.platform, tt.args, func(path string) (os.FileInfo, error) { paths = append(paths, path); return nil, tt.statErr })
+			if (reason != "") != tt.skip || (err != nil) != tt.fail || len(paths) != tt.calls {
+				t.Fatalf("reason=%q err=%v paths=%v", reason, err, paths)
+			}
+			for i, p := range paths {
+				if p != []string{"/etc/codex/config.toml", "/etc/codex/skills"}[i] {
+					t.Fatalf("unexpected metadata lookup %q", p)
+				}
+			}
+		})
+	}
+}
+
+// Use the real command parser with inert dependencies; passthrough arguments
+// must never turn an active launch into a false -s none bypass.
+func binarySourceGuard(platform string, args []string, lstat func(string) (os.FileInfo, error)) (string, error) {
+	active := false
+	app := cli.Application{
+		LoadSkillSets: func() (string, config.SkillSets, error) { return "", config.SkillSets{}, nil },
+		RunLaunch: func(_ context.Context, req launch.Request, _ launch.Reporter) error {
+			selected, err := config.ParseSelection(req.SetValue)
+			active = err != nil || !req.SetPresent || len(selected) != 1 || selected[0] != "none"
+			return nil
+		},
+	}
+	if code := app.Execute(args, io.Discard, io.Discard, "guard"); code != 0 {
+		active = true
+	}
+	if !active {
+		return "", nil
+	}
+	if platform == "windows" {
+		return "active binary scan requires isolated Windows Known Folder and administrator Codex sources; use injected-path application tests", nil
+	}
+	for _, path := range []string{"/etc/codex/config.toml", "/etc/codex/skills"} {
+		_, err := lstat(path)
+		if err == nil {
+			return "active binary scan requires isolated system Codex source: " + path, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("check system Codex source %s: %w", path, err)
+		}
+	}
+	return "", nil
+}
+
+func TestBinarySourceGuardAllowsHelpBinary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds binaries")
+	}
+	f := newIntegrationFixture(t)
+	output, code := f.run(t, []string{"help", "claude"}, nil)
+	if code != 0 || !strings.Contains(output, "Usage:") {
+		t.Fatalf("code=%d output=%s", code, output)
+	}
+}
+
+func TestBinarySourceGuardChecksSecondSystemEntry(t *testing.T) {
+	for _, statErr := range []error{nil, os.ErrPermission} {
+		calls := 0
+		reason, err := binarySourceGuard("linux", []string{"claude", "-s", "dev"}, func(string) (os.FileInfo, error) {
+			calls++
+			if calls == 1 {
+				return nil, os.ErrNotExist
+			}
+			return nil, statErr
+		})
+		if calls != 2 || (statErr == nil && (reason == "" || err != nil)) || (statErr != nil && (reason != "" || !errors.Is(err, statErr))) {
+			t.Fatalf("calls=%d reason=%q err=%v", calls, reason, err)
 		}
 	}
 }

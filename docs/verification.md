@@ -158,34 +158,40 @@ cache-only.json 与 auto-off 相同，额外 cache-plugin@skope-git-fixture=true
 
 结论：第 10 条门禁通过，spec 已补实际 list 数组、自动 plugin/未信任占位的失败处理、directory 原地加载、cache 记录顺序与 scope 规则；六个冻结类型不变。实验 fixture 和无秘密 harness 暂留供独立复核，未纳入产品源码。
 
-## Codex（阻断 Phase 3）
+## Codex（Phase 3 本地门禁已通过）
 
 ### 第 1 条：`-c skills.config` 按 `path` 关闭 skill
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：通过（2026-09-06；原生 Linux 实验）。
+- agent 版本：Codex CLI 0.153.1；官方 release 的 Linux musl x86_64 二进制 `/var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl`，SHA-256 `b9315df68cb0e2827c940ffacb66f7524e820d9744060c755fbf938724ad2b76`。
+- fixture：唯一临时 HOME/USERPROFILE/CODEX_HOME、独立 git repo；allow/block、同名 other-id、中文空格目录、两个 symlink 入口共享一个目标。未复制配置、凭据或调用模型。
+- 命令：`python3 internal/agent/codex/testdata/verification/path_controls.py /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl`。完整 argv 与 JSON-RPC 协议、fixture 构建见 [实验记录](../internal/agent/codex/testdata/verification/README.md)；脚本启动真实 `app-server --stdio`，经当版 schema 确认的 `skills/list`/`config/read` 观察 path/enabled/来源层，另以真实 `debug prompt-input` 检查模型可见清单。
+- 观察：SKILL.md 文件 false 精确关闭；目录 false 无效；同名不同文件互不连带；Unicode/空格文件有效；链接入口文件与 canonical 文件均命中，同目标只返回一条 skill。所有返回 skill 的路径都在 fixture。
+- bundled：true 时有 imagegen、openai-docs、plugin-creator、review-agent、skill-creator、skill-installer；false 时全部消失。未创建缓存时 false 不创建 `.system`，true 创建并列出六条。未执行这些 skill。
+- 参数：交互/exec 尾部 `-c sandbox_mode="p3-invalid"` 均进入配置校验；独立 `--` 后分别报 `unrecognized subcommand '-c'` / `unexpected argument '-c'`，未应用控制。运行时 `-p fixture` 的配置文件 deny 可被显式 CLI true 覆盖；旧 profile 字段明确报不支持。
+- 限制：Windows 同版 CLI 忽略 fixture HOME/USERPROFILE 的 user skill 根，使用系统 Known Folder；初次只读发现真实全局路径后停止，没有把该组计入通过。原生 Windows 路径/Junction 与真实交互模型调用未验，本条通过范围为 Linux 路径规则与模型可见 prompt。
 
 ### 第 6 条：项目级 skills 目录的扫描范围
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：不符（2026-09-06，已修订 spec §7.2；本地 Linux 门禁通过）。
+- agent：Codex CLI 0.153.1，二进制与第 1 条相同。
+- 命令：`unshare --user --map-root-user --mount --net python3 internal/agent/codex/testdata/verification/discovery_plugins.py /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl --private-admin`。
+- 隔离：唯一 /var/tmp fixture；HOME/USERPROFILE/CODEX_HOME 重定向，最小环境，无认证和模型调用；私有 tmpfs 覆盖 /etc，仅在独立 namespace 写 admin fixture，未写宿主 /etc/codex；network namespace 阻止外部网络。
+- 范围：cwd 到 git 根每一级的 .agents/skills 与 .codex/skills，另 HOME/.agents/skills、CODEX_HOME/skills、/etc/codex/skills；无 git 根只读 cwd。不扫仓库 sibling/descendant，但每个 skills 根内部递归，含已有 SKILL.md 的子目录、symlink 中间目录；隐藏目录跳过，共享canonical目标去重。
+- 解析：同 name 多路径都保留；缺 name 用 basename，缺 description/frontmatter 返回errors且不加载；链接环请求可正常结束，无重复。普通根里plugin manifest只提供namespace，pluginId=null，必须按普通路径处理。
+- 证据：53 组 app-server、3 组模型可见 prompt、3 组 features 命令；布局、完整参数形状、版本排序、断言见 [Task 2 实验](../internal/agent/codex/testdata/verification/README.md) 与 [最小 catalog](../internal/agent/codex/testdata/catalog/README.md)。Windows/Junction 和认证远端来源未验。
 
 ### 第 9 条：plugin ID 格式与 `skills.config` 跨层合并语义
 
-- 状态：未验证
-- agent 版本：
-- fixture 布局：
-- 命令：
-- 观察：
-- 结论：
+- 状态：不符（2026-09-06，已修订 spec §7.2；本地 plugin ID、配置开关与路径跨层门禁通过，认证远端支持未验）。
+- agent 版本、fixture、完整命令同第 1 条及其实验记录。
+- 观察：User path=false、name=false、两者组合的三组规则均不会被 CLI `skills.config=[]` 或仅 block=false 的新数组清除。CLI allow path=true + block path=false 在三组中均恢复 allow；其他同名路径继续禁用。同一路径重复项最后一项胜出。所有 app-server 组的 fixture config.toml 字节不变。
+- 交叉验证：`debug prompt-input` 真实输出证明 User path/name 禁用后的 allow 被 CLI true 恢复，block 从模型可见 skill 清单消失；不是仅凭模型自述或退出 0。
+- 层边界：trusted project skills.config 出现在 config/read 的有效配置及 project 来源，但 skills/list 不应用该层规则；`-p fixture` 的运行时用户 profile 文件会应用规则且 CLI true 可覆盖。app-server 拒绝 `-p`，因此 profile 结论来自 debug prompt-input。
+- 结论：纯 denylist 或空数组不能清除 User 禁用。普通 skill 必须枚举 canonical 路径全集，对选中项显式 true，其余 false，spec §7.2 已修改；不需要产品重定向 CODEX_HOME 或改写用户文件。Task 2 已验证本地 ID=name@marketplace；plugin 总开关用单个 plugins TOML inline table，原引用 dotted-key 写法不生效。User 单项 path/name deny 也作用于 plugin skill，所以允许 plugin 的全部路径必须显式 true。trusted 项目、User、system 和运行时 profile 均影响 plugin 开关，CLI 可覆盖；untrusted 项目配置忽略。安装写 config.toml+cache，没有本地独立索引，活动版本见 catalog fixture。
+
+- bundled 补充：bundled=true 下 User 对 imagegen 的 name/path=false 仍有效，true 只允许system来源，不抹单项deny。
+- 远端边界：固定源码 remote_plugin 默认true且账户远端配置可替换local.enabled；真实 features list 的 CLI false有效并保留本地plugin。没有认证远端实验；Task 3 已落实本地来源限定，活动命令显式关闭该 feature，不能声称支持远端允许列表。
 
 ## OpenCode（阻断 Phase 4）
 
@@ -410,3 +416,93 @@ done
 最终补验继续使用上述完整命令、Claude 2.1.259、隔离 fixture 和绑定 `22fa1f6` 的产物，运行前 version 与 SHA-256 均与记录一致。bridge 每次读取当前 provider 所需 env，未复制用户配置；两次调用的 stderr 含 Claude 的 `unrecognized_model` 诊断，均正常完成且 is_error=false。该诊断不作为 skill 生效依据，结论来自实际 Read 工具结果和准确 marker。最后再次 dry-run 退出 0，回收剩余 session 至 0；Task 17 Step 4 关闭。
 
 首次额度不足及桥接编码问题保留为实验历史，不再是待办。补验后检查 Windows fixture 与 skope-home 的 33 个文件，未发现当前 provider 的 AUTH_TOKEN/API_KEY 值。实验脚本、fixture 和脱敏输出暂留供交付复核，不纳入产品提交。
+
+
+### Phase 3
+
+- 日期：2026-09-06。Phase 3 complete：Task 1–13 的实现、测试、真实验收、逐任务 Spec/质量审查及最终全局代码审查全部通过；计划已完成勾选。
+- 基线 `b329857`；验收源码 `ed39e41fab769d30fb5654c11aef189cb748e9be`。最终门禁增加 Unix active binary 未跳过断言、Go 1.24 测试 fixture 修复和真实启动 harness；最终审查发现并修复 CODEX_HOME 路径归一化导致来源不同的产品缺陷，详见下文。
+- 冻结审计：`internal/skill/skill.go`、`internal/agent/agent.go` 相对基线无 diff，覆盖 Skill、Location、Adapter、Capabilities、LaunchPlan、Inventory 六类型；`cmd/skope/main.go`、go.mod、go.sum 无 diff。depguard 通过。
+- Windows Go 1.27.1：Git Bash 执行 `make check`，gofmt/vet/固定 golangci-lint v2.13.2/test/build 全通过，lint 为 0 issues。`go test -count=1 '-coverprofile=coverage.txt' ./...`、`go tool cover '-func=coverage.txt'` 通过，总 statements **88.5%**。
+- 包覆盖率：Codex **89.1%**、Claude 94.9%、CLI 90.5%、launch 95.6%、skill 94.8%、projection 93.7%、proc 90.9%、termsafe 100%；host 68.9%、session 79.7%。未排除业务文件，Windows active binary 的平台 guard 保留，注入应用/FS、none/help 实际执行。
+- PR [#3](https://github.com/HScarb/skill-scope/pull/3)。首次 [run 34031828960](https://github.com/HScarb/skill-scope/actions/runs/34031828960) 三平台均在 TestScanForeignRootsRejectsDanglingCommandRoot 失败：Go 1.24 的 fstest.MapFS 对链接 ReadDir 返回 not implemented，本机 Go 1.27.1 则返回不存在。`e4fb1e8` 在该 fixture 显式注入宿主 ReadDir 的 fs.ErrNotExist，保留原错误类型断言及 Lstat 可见的悬空链接；未改生产扫描器。
+- 修复后的 [run 34032114983](https://github.com/HScarb/skill-scope/actions/runs/34032114983)，HEAD `e4fb1e8166e9389cbfa5cfca3dbeadf651451f8d`，Ubuntu/macOS race+build、Windows test+build、lint 全通过。Ubuntu/macOS 的额外 JSON 检查中 TestIntegrationPhaseThreeBinaryIsolationAndReaping 均有 Action=pass、无 skip；没有将包 PASS 当成 active 实际执行。CI 实际 Go 1.24.0。
+- 已提交验收 harness 的最终实现 [run 34032406795](https://github.com/HScarb/skill-scope/actions/runs/34032406795)，HEAD `13a7ba4b4d3506831500d4e95cd3120206e83f5e`，同样四个 job 全绿。Ubuntu/macOS exact active JSON 分别 Action=pass（0.36s / 0.72s），Windows test/build 与 lint 成功。
+- 独立 Linux clone `/var/tmp/skope-phase3-final-task13-source` 通过 `git clone --no-local --branch codex/phase3-codex-adapter /mnt/d/workspace/vibe/skill-scope ...` 创建，快进到 `ed39e41`。完整 `make check` 和 `go test -race ./internal/host ./internal/agent/codex ./internal/cli -count=1` 通过；`13a7ba4` 时另外强制 `-count=1` 的 active fake-agent binary 用例通过，clone 工作树干净，未依赖工作区未跟踪 AGENTS 或 fixture。
+- Linux 使用既有 `/var/tmp/skope-phase2-go-01a070a2/go/bin/go`（1.27.1）、同目录 gopath。最初 GOPROXY=off 仍触发缺失 sumdb 网络校验并失败；最终仅为本次进程设置 `GOPROXY=file:///var/tmp/skope-phase2-go-01a070a2/gopath/pkg/mod/cache/download`、`GOSUMDB=off`，从既有固定版本 cache 离线执行 make check，lint 为 0 issues。没有更改用户 go env、工具、go.mod/go.sum 或下载依赖。
+
+- CODEX_HOME 修复后的 [run 34032836639](https://github.com/HScarb/skill-scope/actions/runs/34032836639)，HEAD `ed39e41fab769d30fb5654c11aef189cb748e9be`，Ubuntu/macOS race+build、Windows test+build、lint 全部成功。Windows 最终 make check、全仓 fresh coverage 复跑通过，总覆盖率仍 88.5%。
+- 最终只读审查发现 `ResolveCodexPaths` 对 CODEX_HOME TrimSpace/Clean，但 handoff 传原环境。尾空格目录与去空格目录不同时会漏扫；symlink 后 `..` 也会被提前化简到另一个目录。新增测试先红，真实旧产物在 `/var/tmp/skope-phase3-acceptance-9btwch12` 的 space-home-active 断言失败，未允许 skill 确实进入 prompt。`ed39e41` 保留非空原始 CODEX_HOME；纯空白按非绝对路径拒绝；平台 home 与 CODEX_HOME 在 Clean 前拒绝 `..` 段。spec §4 与计划 Task 4 的旧 trim 规定同步修订。原审查者已独立复跑 Windows host 测试及五组真实隔离对照，确认修复，Important 已关闭。
+
+#### 真实 Codex：最终产物身份与观察协议
+
+- `SKOPE_BUILD_COMMIT=ed39e41fab769d30fb5654c11aef189cb748e9be`，`SKOPE_EXE=/var/tmp/skope-phase3-build-Ojbcft/skope`。独立 clone 内构建；version 为 `skope phase3-ed39e41fab769d30fb5654c11aef189cb748e9be`，build info 为 Go 1.27.1、GOOS=linux、GOARCH=amd64、CGO_ENABLED=1、vcs.revision 同提交、vcs.modified=false。
+- skope SHA-256 为 `7ded09b187d656854b6f88894bf789fa51afc3a420744d5338afda67f6a7dcd3`。此前 `13a7ba4` 产物通过原 17 组对照，但在新增 CODEX_HOME 尾空格反例中失败；最终记录使用修复后的上述版本和 23 组扩展矩阵；后续若只有交付文档提交，不混称为该二进制构建版本。
+- Codex 为原生 Linux **0.153.1**，绝对路径 `/var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl`；SHA-256 `b9315df68cb0e2827c940ffacb66f7524e820d9744060c755fbf938724ad2b76`。本次每轮 harness 强制验证该哈希。
+- 最终 fixture `/var/tmp/skope-phase3-acceptance-6y1jpted`，使用 29fbe9a 的进程清理 harness 与上文 ed39e41 产品产物；此前同产品验收目录为 `/var/tmp/skope-phase3-acceptance-mndx7ya1`。完整可复验脚本为 [skope_acceptance.py](../internal/agent/codex/testdata/verification/skope_acceptance.py)，前置协议与版本对照见 [verification README](../internal/agent/codex/testdata/verification/README.md)。原始 results.json 记录完整 skope argv、从同 PID /proc/cmdline 实际读取的 Codex argv、/proc/exe 身份、prompt、退出码和 owner；summary.json 记录产物哈希、断言数与剩余 session。不提交完整 prompt、bundled 正文或 SQLite 缓存。
+- 所有子进程在 private user/mount/network namespace 中；先 mount --make-rprivate / 再给 /etc 挂载 tmpfs。HOME、USERPROFILE、CODEX_HOME、SKOPE_HOME、CLAUDE_CONFIG_DIR、cwd 均为唯一 fixture。环境只保留明确 PATH 和这些路径，不读/复制认证，不调用模型，无外部网络。
+- 观察协议为真实 `debug prompt-input` 的模型可见 skill 条目，先展开 r0 等根别名再 canonical 比较路径；没有靠模型自述或 fake argv 判断生效。/proc 证明 skope 的同一 PID 已 exec 为真实 Codex，active 尾部控制确实存在；remote feature 另由真实 `features list` 证明 false。该证据覆盖加载与 handoff，不宣称交互模型执行 skill 或认证远端插件闭环。
+
+```sh
+cd /var/tmp/skope-phase3-final-task13-source
+export PATH=/var/tmp/skope-phase2-go-01a070a2/go/bin:/usr/bin:/bin
+export GOPATH=/var/tmp/skope-phase2-go-01a070a2/gopath
+export GOPROXY=file:///var/tmp/skope-phase2-go-01a070a2/gopath/pkg/mod/cache/download
+export GOSUMDB=off
+make check
+go test -json ./internal/cli -run '^TestIntegrationPhaseThreeBinaryIsolationAndReaping$' -count=1
+SKOPE_BUILD_COMMIT="$(git rev-parse HEAD)"
+SKOPE_BUILD_DIR="$(mktemp -d -p /var/tmp skope-phase3-build-XXXXXX)"
+SKOPE_EXE="$SKOPE_BUILD_DIR/skope"
+go build -ldflags "-X main.version=phase3-$SKOPE_BUILD_COMMIT" -o "$SKOPE_EXE" ./cmd/skope
+"$SKOPE_EXE" version
+go version -m "$SKOPE_EXE"
+sha256sum "$SKOPE_EXE"
+unshare --user --map-root-user --mount --net python3 internal/agent/codex/testdata/verification/skope_acceptance.py "$SKOPE_EXE" /var/tmp/skope-p3-codex-01531/codex-x86_64-unknown-linux-musl
+```
+
+```text
+fixture/
+  home/.agents/skills/{selected,linked,linked-alias,auto-root}/
+  target/SKILL.md                 # 两个 linked 入口指向同一目标
+  repo/.git/  repo/.agents/skills/selected/SKILL.md
+  codex/config.toml  codex/skills/blocked/SKILL.md
+  codex/plugins/cache/fixture/{permit,deny}/1.0.0/
+  claude/skills/foreign/SKILL.md  claude/commands/command.md
+  skope/{config.toml,skillsets.toml,sessions/}
+  empty/{home,codex,claude,repo}/
+```
+
+selected 的两条路径和 blocked 的 frontmatter 同为 p3-same；skillset 用 basename selected 选择前两条，禁止第三条。两个链接入口的 frontmatter 为 p3-linked。permit 有 one/two，deny 有 one/two/denied-only；二者初始 enabled 分别 false/true。普通 auto-root 有 manifest.name=p3-auto，根自身及 skills/child 各有 SKILL.md，不视作 installed plugin。phase3 的配置为：
+
+```toml
+version=1
+[skillsets.phase3]
+skills=["selected","linked","foreign","command","denied-only","missing"]
+plugins.codex=["permit@fixture","missing@fixture"]
+bundled=false
+```
+
+| 真实 skope 对照 | 验收断言 |
+|---|---|
+| 三种 User path/name/组合 deny，每种 none→phase3→dry-run | none 保留原 deny；active 允许两条 selected，blocked 始终不可见 |
+| 同 canonical 两链接 | 选择 linked 后目标可见，摘要告警 linked/linked-alias 无法独立隔离；控制数组只有一个 canonical 目标 |
+| permit 初始 false、其单项 User name deny | active 后 one/two 全部可见；none 不可见 |
+| deny 初始 true | none 可见，active 全部不可见；选择 denied-only 不启用插件 |
+| 摘要 | 2 native、0 projected、3 unavailable、1 missing；foreign、command、disabled plugin 与 missing 分开；missing@fixture 警告 |
+| bundled=false / true | false 不列 system；true 与同 User 配置的 none system 可见集合精确一致，imagegen 仍被单项 deny，openai-docs 可见；磁盘 review-agent 不在这版 prompt 中 |
+| 普通 manifest 根自身 / child | phase3 中均禁止，auto set 中两者均可见；不依赖虚构 plugin 总开关 |
+| 空 set / 空 inventory | 前者所有既有普通与 plugin 条目不可见；后者 dry-run 为 skills.config=[]，真实 prompt 无 skill 路径 |
+| remote_plugin | 实际 argv 最后两项为 -c、features.remote_plugin=false；真实 features list 返回 false |
+| CODEX_HOME 路径身份 | 尾空格根中禁止项 none 可见、active 不可见；symlink/.. 根 none 加载实际目标，active dry-run/launch 在扫描前拒绝；纯空白值拒绝 |
+| 配置与来源不变 | 21 个配置、manifest、SKILL/command 文件固定旧 mtime，每条命令后字节与 mtime 完全一致 |
+| session 生命周期 | active 退出后仅 owner.json，PID=真实 Codex PID；下一次 active/dry-run/none 回收，最终 0 个 session，无 projection |
+
+Task 1 Windows 真 Codex 实验和 Task 11 旧 TestProductionLaunchProjectsDiscoveryLinkWithFakeProbe 各发生一次 Known Folder 忽略 HOME/USERPROFILE 的意外只读来源访问；未保存用户 skill 正文。前者转 Linux 私有 namespace，后者在 fixture 创建前加入 Windows skip，并对 Unix 固定 admin 入口仅 Lstat 后决定执行/skip。Task 10 公共 binary guard 与后续修复共同覆盖生产装配入口；不能声称本阶段从未意外发现真实来源。
+
+交付时一次未指定 ref 的 git push 因既有 push.default=matching 同时将远端 main 从 b329857 快进到原有本地文档提交 db64dec（Phase 3 计划），已立即报告主控；未合并 Phase 3 产品代码，未 force push 或自行回退。之后所有推送显式限定 HEAD:refs/heads/codex/phase3-codex-adapter。
+
+
+Task 13 质量复审发现验收 harness 的超时/观测异常会遗留子进程。脚本已改用独立 session/process group，在异常时无条件 killpg 后 communicate 回收并保留原异常，包含父进程先退出、后代仍持管道的情况。新增标准库受控回归先在旧实现中复现超时/观测异常后父进程仍活；修后四个场景全部通过，父进程与后代均无残留。正常真实 Codex 23 case 也完整复跑通过，证据 `/var/tmp/skope-phase3-acceptance-6y1jpted`，仍使用上文 `ed39e41` 产品产物和同一 SHA-256；本次只修改验收 harness，没有将产品产物冒称为后续 harness 提交。21 文件字节/旧 mtime 不变，最终 session=0；代码语法与 diff 检查通过。独立质量复审已再次运行四项受控测试并核对 23 case、SHA 和 CI，确认 Important 清除。Task 13 Spec/质量及全局代码审查全部通过。
+
+最终 harness 提交 `29fbe9a77430f16d68b4a34457331eceda1e1c6c` 的 [CI 34033746778](https://github.com/HScarb/skill-scope/actions/runs/34033746778) 四个 job 全部成功，包含 Ubuntu/macOS active testcase 必须 pass 且非 skip 的检查。后续收口仅更新完成状态与交付文档，产品和已验收 harness 不变；PR #3 保持 draft，保留 worktree、独立 clone、绑定产品和最终 fixture 供审阅。

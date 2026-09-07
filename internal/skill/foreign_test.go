@@ -102,9 +102,12 @@ func TestScanForeignGlobalsRootsAndNames(t *testing.T) {
 			}
 			for _, candidate := range got.Skills {
 				loc := candidate.Locations[0]
-				want := map[skill.Agent]string{skill.AgentCodex: candidate.ID, skill.AgentOpenCode: candidate.ID}
+				want := map[skill.Agent]string{skill.AgentOpenCode: candidate.ID}
+				if candidate.ID == "manifest" {
+					want[skill.AgentCodex] = candidate.ID
+				}
 				if candidate.ID == "agents" {
-					want = map[skill.Agent]string{skill.AgentCodex: "effective", skill.AgentOpenCode: "effective"}
+					want = map[skill.Agent]string{skill.AgentOpenCode: "effective"}
 				}
 				if candidate.ID == tt.codex {
 					delete(want, skill.AgentOpenCode)
@@ -237,7 +240,7 @@ func TestScanForeignGlobalsLimitsActualReads(t *testing.T) {
 				if len(got.Rejections) != 1 || got.Rejections[0].Reason != tt.wantReason || len(got.Skills[0].Locations[0].Names) != 0 {
 					t.Fatalf("result=%#v", got)
 				}
-			} else if got.Skills[0].Locations[0].Names[skill.AgentCodex] != tt.wantName {
+			} else if got.Skills[0].Locations[0].Names[skill.AgentOpenCode] != tt.wantName {
 				t.Fatal(got)
 			}
 		})
@@ -343,6 +346,12 @@ func TestScanForeignGlobalsPreservesLinkedDiscoveryPaths(t *testing.T) {
 		t.Fatal("effective name collisions missing")
 	}
 	if err := os.Remove(filepath.Join(target, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if empty, err := (skill.Scanner{FS: fsys, RegularFiles: fsys}).ScanForeignGlobals(host.NewEnv(home, home, nil), 100); err != nil || len(empty.Skills) != 0 {
+		t.Fatalf("linked empty group result=%+v error=%v", empty, err)
+	}
+	if err := os.Remove(target); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := (skill.Scanner{FS: fsys, RegularFiles: fsys}).ScanForeignGlobals(host.NewEnv(home, home, nil), 100); !errors.Is(err, fs.ErrNotExist) {

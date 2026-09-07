@@ -1,0 +1,10 @@
+[
+  "-c",
+  "skills.config=[{path=\"/fixture/allow/SKILL.md\",enabled=true},{path=\"/fixture/block/SKILL.md\",enabled=false},{path=\"/fixture/keep/SKILL.md\",enabled=true}]",
+  "-c",
+  "skills.bundled.enabled=false",
+  "-c",
+  "plugins={\"block@market\"={enabled=false},\"keep@market\"={enabled=true},\"missing@market\"={enabled=true}}",
+  "-c",
+  "features.remote_plugin=false"
+]

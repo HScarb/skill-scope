@@ -292,7 +292,7 @@ func TestRenderUnavailableReasons(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.reason), func(t *testing.T) {
-			r := launch.Result{Resolved: skill.Resolved{Entries: []skill.Resolution{{ID: "id", State: skill.StateUnavailable, Reason: tc.reason}}}}
+			r := launch.Result{Resolved: skill.Resolved{Agent: skill.AgentClaude, Entries: []skill.Resolution{{ID: "id", State: skill.StateUnavailable, Reason: tc.reason}}}}
 			out := executeRender(t, r, false)
 			if !strings.Contains(out, "unavailable: id ("+tc.text+")\n") {
 				t.Errorf("output=%s", out)

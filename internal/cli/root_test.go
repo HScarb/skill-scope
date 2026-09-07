@@ -58,7 +58,7 @@ func TestApplicationHelpListsCommandsWithoutRunningDependencies(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	for _, command := range []string{"claude", "list", "version"} {
+	for _, command := range []string{"claude", "codex", "list", "version"} {
 		if !strings.Contains(stdout.String(), command) {
 			t.Errorf("help should list the %s command:\n%s", command, stdout.String())
 		}

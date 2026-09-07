@@ -30,6 +30,19 @@ jobs:
       - name: go test
         if: runner.os == 'Windows'
         run: go test '-coverprofile=coverage.txt' ./...
+      - name: verify Unix active Codex integration executes
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -json ./internal/cli -run '^TestIntegrationPhaseThreeBinaryIsolationAndReaping$' -count=1 | tee phase3-active.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          events = [json.loads(line) for line in Path("phase3-active.jsonl").read_text().splitlines()]
+          actions = [e["Action"] for e in events if e.get("Test") == "TestIntegrationPhaseThreeBinaryIsolationAndReaping"]
+          assert "pass" in actions and "skip" not in actions and "fail" not in actions, actions
+          PY
       - name: build
         run: go build ./...
 

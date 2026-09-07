@@ -694,3 +694,39 @@ func TestPrepareProjectionPropagatesInspectionErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceCodexWithoutProjectionNeverInspectsOrCopies(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		t.Run(map[bool]string{false: "active", true: "dry"}[dry], func(t *testing.T) {
+			f := newFixture()
+			f.fsys.files[f.skillSetsPath] = []byte("version=1\n[skillsets.dev]\nskills=['native','allowed','disabled','other','command','foreign','missing']\n[skillsets.dev.plugins]\ncodex=['p@m']\n")
+			f.adapter.inventory.Skills = []skill.Skill{
+				{ID: "native", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/native", Names: map[skill.Agent]string{skill.AgentCodex: "native"}}}},
+				{ID: "allowed", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/allowed", Level: skill.LevelPlugin, PluginID: "p@m", PluginAgent: skill.AgentCodex, Names: map[skill.Agent]string{skill.AgentCodex: "allowed"}}}},
+				{ID: "disabled", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/disabled", Level: skill.LevelPlugin, PluginID: "q@m", PluginAgent: skill.AgentCodex, Names: map[skill.Agent]string{skill.AgentCodex: "disabled"}}}},
+				{ID: "other", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/other", Level: skill.LevelPlugin, PluginID: "q@m", PluginAgent: skill.AgentClaude}}},
+				{ID: "command", Locations: []skill.Location{{Kind: skill.KindCommand, DiscoveryPath: "/command"}}},
+				{ID: "foreign", Locations: []skill.Location{{Kind: skill.KindSkill, DiscoveryPath: "/foreign"}}},
+			}
+			f.service.Inspector = inspectFunc(func(context.Context, string) (projection.Manifest, *projection.Rejection, error) {
+				panic("Projection=false must not inspect")
+			})
+			f.service.Copier = copyFunc(func(context.Context, projection.Manifest, projection.Sink) error {
+				panic("Projection=false must not copy")
+			})
+			var result Result
+			err := f.service.Run(context.Background(), Request{Agent: skill.AgentCodex, SetPresent: true, SetValue: "dev", DryRun: dry}, func(r Result) error { result = r; return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Resolved.Count(skill.StateNative) != 2 || result.Resolved.Count(skill.StateUnavailable) != 4 || result.Resolved.Count(skill.StateMissing) != 1 || result.Resolved.Count(skill.StateProjected) != 0 || len(result.ProjectionFiles) != 0 {
+				t.Fatalf("unexpected resolution: %#v", result.Resolved)
+			}
+			for i, reason := range []skill.ResolutionReason{skill.ReasonPluginDisabled, skill.ReasonPluginOnly, skill.ReasonCommandOnly, skill.ReasonProjectionUnsupported} {
+				if result.Resolved.Entries[i+2].Reason != reason {
+					t.Fatalf("entry=%#v want=%s", result.Resolved.Entries[i+2], reason)
+				}
+			}
+		})
+	}
+}

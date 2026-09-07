@@ -40,7 +40,7 @@ func TestServiceDryRunRejectsInvalidRealForeignDirectoryAndContinues(t *testing.
 	f.service.Env = host.NewEnv(home, home, nil)
 	f.adapter.capabilities.Projection = true
 	f.fsys.files[f.skillSetsPath] = []byte("version=1\n[skillsets.dev]\nskills=['foo:bar','good','one','missing']\n")
-	f.service.Foreign = skill.Scanner{FS: host.OSFileSystem{}, RegularFiles: host.OSFileSystem{}}
+	f.service.Foreign = foreignScanFunc((skill.Scanner{FS: host.OSFileSystem{}, RegularFiles: host.OSFileSystem{}}).ScanForeignGlobals)
 	f.service.Inspector = projection.Inspector{OpenRoot: func(dir string) (projection.Root, error) { return host.OpenProjectionRoot(dir) }}
 	var result Result
 	err := f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "dev", DryRun: true}, func(r Result) error {
@@ -66,7 +66,7 @@ func TestServiceDryRunRejectsInvalidRealForeignDirectoryAndContinues(t *testing.
 	}
 }
 
-func (f foreignScanFunc) ScanForeignGlobals(env host.Env, limit int64) (skill.ScanResult, error) {
+func (f foreignScanFunc) ScanForeign(_ context.Context, env host.Env, _ skill.Agent, limit int64) (skill.ScanResult, error) {
 	return f(env, limit)
 }
 
@@ -377,7 +377,7 @@ func TestServiceCopiesRealTreeBeforePlanAndProtectsReportSnapshot(t *testing.T) 
 			f.fsys.files[f.skillSetsPath] = []byte("version=1\n[skillsets.dev]\nskills=['linked']\n")
 			fsys := host.OSFileSystem{}
 			scanner := skill.Scanner{FS: fsys, RegularFiles: fsys}
-			f.service.Foreign = scanner
+			f.service.Foreign = foreignScanFunc(scanner.ScanForeignGlobals)
 			f.registry.adapter = claude.New(scanner, fsys, probeFunc(func(context.Context, proc.Request) (proc.Result, error) {
 				return proc.Result{Stdout: []byte("[]")}, nil
 			}), claude.Options{Executable: "fake"})

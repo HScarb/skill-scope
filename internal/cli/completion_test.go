@@ -34,13 +34,16 @@ func TestHiddenCompletionRejectsTerminalControls(t *testing.T) {
 
 func TestHiddenCompletionPreservesNormalProtocol(t *testing.T) {
 	for _, name := range []string{"__complete", "__completeNoDesc"} {
-		for _, prefix := range []string{"", "cla", "中文", `C:\普通路径\skill`} {
+		for _, prefix := range []string{"", "cla", "cod", "中文", `C:\普通路径\skill`} {
 			var out, stderr bytes.Buffer
 			code := (cli.Application{}).Execute([]string{name, prefix}, &out, &stderr, "")
 			if code != 0 || !strings.Contains(out.String(), ":") || !strings.HasSuffix(out.String(), "\n") {
 				t.Errorf("%s/%q code=%d output=%q stderr=%q", name, prefix, code, out.String(), stderr.String())
 			}
 			if prefix == "cla" && !strings.Contains(out.String(), "claude") {
+				t.Errorf("missing completion: %q", out.String())
+			}
+			if prefix == "cod" && !strings.Contains(out.String(), "codex") {
 				t.Errorf("missing completion: %q", out.String())
 			}
 		}

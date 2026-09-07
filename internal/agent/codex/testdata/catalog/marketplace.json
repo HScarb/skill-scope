@@ -1,0 +1,17 @@
+{
+  "name": "fixture",
+  "plugins": [
+    {
+      "name": "alpha",
+      "source": {"source": "local", "path": "./plugins/alpha"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_USE"},
+      "category": "Productivity"
+    },
+    {
+      "name": "beta",
+      "source": {"source": "local", "path": "./plugins/beta"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_USE"},
+      "category": "Productivity"
+    }
+  ]
+}

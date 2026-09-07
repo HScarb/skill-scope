@@ -22,6 +22,17 @@ func TestProductionLaunchProjectsDiscoveryLinkWithFakeProbe(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds fake probe")
 	}
+	// Production path resolution uses Known Folders on Windows, not the test Env.
+	if runtime.GOOS == "windows" {
+		t.Skip("production Codex sources cannot be isolated from Windows Known Folders")
+	}
+	for _, path := range []string{"/etc/codex/skills", "/etc/codex/config.toml"} {
+		if _, err := os.Lstat(path); err == nil {
+			t.Skipf("production Codex source exists outside fixture: %s", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("check production Codex source %s: %v", path, err)
+		}
+	}
 	root := t.TempDir()
 	write := func(name, body string) {
 		t.Helper()

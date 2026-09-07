@@ -22,6 +22,7 @@ type FileSystem interface {
 }
 
 type ScanResult struct {
+	Warnings    []string
 	Skills      []Skill
 	Collisions  []Collision
 	ProjectRoot string
@@ -69,70 +70,143 @@ func (s Scanner) ScanRoots(roots []Root) (ScanResult, error) {
 	return ScanResult{Skills: skills, Collisions: collisions}, nil
 }
 
-func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
-	entries, err := s.FS.ReadDir(root.Path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read directory %s: %w", root.Path, err)
+// visitRoot shares discovery rules between native and bounded foreign scans.
+func (s Scanner) visitRoot(root Root, visit func(Root, string, string) error) error {
+	if root.Kind == KindCommand {
+		return s.visitCommands(root, root.Path, true, visit)
 	}
-	slices.SortFunc(entries, func(left, right fs.DirEntry) int {
-		return strings.Compare(left.Name(), right.Name())
-	})
+	if root.Kind != KindSkill {
+		return nil
+	}
+	return s.visitSkillDirectory(root, root.Path, true, map[string]bool{}, visit)
+}
 
-	locations := make([]Location, 0, len(entries))
+func (s Scanner) visitSkillDirectory(root Root, directory string, isRoot bool, chain map[string]bool, visit func(Root, string, string) error) error {
+	entries, err := s.FS.ReadDir(directory)
+	if err != nil {
+		if isRoot && errors.Is(err, fs.ErrNotExist) {
+			if _, linkErr := s.FS.Lstat(directory); errors.Is(linkErr, fs.ErrNotExist) {
+				return nil
+			}
+		}
+		return fmt.Errorf("read directory %s: %w", directory, err)
+	}
+	if root.ScanMode == CodexRecursive {
+		realPath, err := s.FS.EvalSymlinks(directory)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", directory, err)
+		}
+		realPath = cleanPath(realPath)
+		if chain[realPath] {
+			return nil
+		}
+		chain[realPath] = true
+		defer delete(chain, realPath)
+	}
+	if root.ScanMode == CodexRecursive {
+		if root.PluginID == "" && root.Source == SourceClaude {
+			manifest := joinPath(directory, ".claude-plugin", "plugin.json")
+			if _, err := s.FS.Stat(manifest); err == nil {
+				return nil
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("stat %s: %w", manifest, err)
+			}
+		}
+		if root.PluginID == "" {
+			manifest, err := s.readOptionalCodexManifest(directory)
+			if err != nil {
+				return err
+			}
+			if manifest.Name != "" {
+				root.NamePrefix = manifest.Name
+			}
+		}
+		name := joinPath(directory, "SKILL.md")
+		if _, err := s.FS.Lstat(name); err == nil {
+			if err := visit(root, name, path.Base(directory)); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("lstat %s: %w", name, err)
+		}
+	}
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	for _, entry := range entries {
-		isSymlink := entry.Type()&fs.ModeSymlink != 0
-		if !entry.IsDir() && !isSymlink {
+		if root.ScanMode == CodexRecursive && strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-
-		if root.PluginID == "" && root.Source == SourceClaude {
-			manifest := joinPath(root.Path, entry.Name(), ".claude-plugin", "plugin.json")
-			if _, err := s.FS.Stat(manifest); err == nil {
+		name := joinPath(directory, entry.Name())
+		if root.ScanMode == DirectChildren {
+			if !entry.IsDir() && entry.Type()&fs.ModeSymlink == 0 {
 				continue
-			} else if !errors.Is(err, fs.ErrNotExist) {
-				return nil, fmt.Errorf("stat %s: %w", manifest, err)
 			}
-		}
-		discoveryPath := joinPath(root.Path, entry.Name(), "SKILL.md")
-		contents, err := s.readSkillFile(discoveryPath)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) && !isSymlink {
-				_, lstatErr := s.FS.Lstat(discoveryPath)
-				if errors.Is(lstatErr, fs.ErrNotExist) {
+			if root.PluginID == "" && root.Source == SourceClaude {
+				manifest := joinPath(name, ".claude-plugin", "plugin.json")
+				if _, err := s.FS.Stat(manifest); err == nil {
+					continue
+				} else if !errors.Is(err, fs.ErrNotExist) {
+					return fmt.Errorf("stat %s: %w", manifest, err)
+				}
+			}
+			discovery := joinPath(name, "SKILL.md")
+			if _, err := s.FS.Lstat(discovery); err != nil {
+				if errors.Is(err, fs.ErrNotExist) && entry.Type()&fs.ModeSymlink == 0 {
 					continue
 				}
-				if lstatErr != nil {
-					return nil, fmt.Errorf("lstat %s: %w", discoveryPath, lstatErr)
-				}
+				return fmt.Errorf("lstat %s: %w", discovery, err)
 			}
-			return nil, fmt.Errorf("read %s: %w", discoveryPath, err)
+			if err := visit(root, discovery, entry.Name()); err != nil {
+				return err
+			}
+			continue
 		}
-		realPath, err := s.FS.EvalSymlinks(discoveryPath)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %s: %w", discoveryPath, err)
+		if entry.Type()&fs.ModeSymlink != 0 {
+			info, err := s.FS.Stat(name)
+			if err != nil {
+				return fmt.Errorf("stat %s: %w", name, err)
+			}
+			if !info.IsDir() {
+				continue
+			}
+		} else if !entry.IsDir() {
+			continue
 		}
-		frontmatterName, err := parseFrontmatterName(contents)
-		if err != nil {
-			return nil, fmt.Errorf("parse frontmatter %s: %w", discoveryPath, err)
+		if err := s.visitSkillDirectory(root, name, false, chain, visit); err != nil {
+			return err
 		}
-
-		locations = append(locations, Location{
-			Kind:            root.Kind,
-			DiscoveryPath:   discoveryPath,
-			RealPath:        cleanPath(realPath),
-			Level:           root.Level,
-			Source:          root.Source,
-			Scope:           root.Scope,
-			PluginID:        root.PluginID,
-			PluginAgent:     root.PluginAgent,
-			FrontmatterName: frontmatterName,
-			Names:           rootNames(root, entry.Name(), frontmatterName),
-		})
 	}
-	return locations, nil
+	return nil
+}
+
+func locationFor(root Root, name, realPath string) Location {
+	return Location{Kind: root.Kind, DiscoveryPath: name, RealPath: cleanPath(realPath), Level: root.Level, Source: root.Source, Scope: root.Scope, PluginID: root.PluginID, PluginAgent: root.PluginAgent}
+}
+
+func (s Scanner) scanSkillRoot(root Root) ([]Location, error) {
+	var locations []Location
+	err := s.visitRoot(root, func(root Root, name, basename string) error {
+		contents, err := s.readSkillFile(name)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		realPath, err := s.FS.EvalSymlinks(name)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", name, err)
+		}
+		frontmatter, err := parseFrontmatterName(contents)
+		if err != nil {
+			return fmt.Errorf("invalid skill metadata %s", name)
+		}
+		if slices.Contains(root.VisibleTo, AgentCodex) && !codexDescriptionValid(contents) {
+			return fmt.Errorf("invalid Codex skill metadata %s", name)
+		}
+		location := locationFor(root, name, realPath)
+		location.FrontmatterName = frontmatter
+		location.Names = rootNames(root, basename, frontmatter)
+		locations = append(locations, location)
+		return nil
+	})
+	return locations, err
 }
 
 // Native skill files have no byte limit, but special files must never be read.
@@ -159,73 +233,64 @@ func (s Scanner) readSkillFile(name string) (contents []byte, err error) {
 
 func (s Scanner) scanCommandRoot(root Root) ([]Location, error) {
 	var locations []Location
-	if err := s.walkCommands(root, root.Path, true, &locations); err != nil {
-		return nil, err
-	}
-	return locations, nil
+	err := s.visitRoot(root, func(root Root, name, basename string) error {
+		if _, err := s.readSkillFile(name); err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		realPath, err := s.FS.EvalSymlinks(name)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", name, err)
+		}
+		location := locationFor(root, name, realPath)
+		location.Names = rootNames(root, basename, "")
+		locations = append(locations, location)
+		return nil
+	})
+	return locations, err
 }
 
-func (s Scanner) walkCommands(root Root, directory string, isRoot bool, locations *[]Location) error {
+func (s Scanner) visitCommands(root Root, directory string, isRoot bool, visit func(Root, string, string) error) error {
 	entries, err := s.FS.ReadDir(directory)
 	if err != nil {
 		if isRoot && errors.Is(err, fs.ErrNotExist) {
-			return nil
+			if _, linkErr := s.FS.Lstat(directory); errors.Is(linkErr, fs.ErrNotExist) {
+				return nil
+			}
 		}
 		return fmt.Errorf("read directory %s: %w", directory, err)
 	}
-	slices.SortFunc(entries, func(left, right fs.DirEntry) int {
-		return strings.Compare(left.Name(), right.Name())
-	})
-
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	for _, entry := range entries {
-		entryPath := joinPath(directory, entry.Name())
-		isSymlink := entry.Type()&fs.ModeSymlink != 0
+		name := joinPath(directory, entry.Name())
 		if entry.IsDir() {
 			if entry.Name() == ".git" || entry.Name() == "node_modules" {
 				continue
 			}
-			if err := s.walkCommands(root, entryPath, false, locations); err != nil {
+			if err := s.visitCommands(root, name, false, visit); err != nil {
 				return err
 			}
 			continue
 		}
-		if path.Ext(entry.Name()) != ".md" || (!entry.Type().IsRegular() && !isSymlink) {
+		if path.Ext(entry.Name()) != ".md" {
 			continue
 		}
-		if isSymlink {
-			info, err := s.FS.Stat(entryPath)
+		if entry.Type()&fs.ModeSymlink != 0 {
+			info, err := s.FS.Stat(name)
 			if err != nil {
-				return fmt.Errorf("stat %s: %w", entryPath, err)
+				return fmt.Errorf("stat %s: %w", name, err)
 			}
 			if info.IsDir() {
 				continue
 			}
 		}
-		if _, err := s.FS.ReadFile(entryPath); err != nil {
-			return fmt.Errorf("read %s: %w", entryPath, err)
-		}
-		realPath, err := s.FS.EvalSymlinks(entryPath)
+		relative, err := relativePath(root.Path, name)
 		if err != nil {
-			return fmt.Errorf("resolve %s: %w", entryPath, err)
+			return fmt.Errorf("resolve command path %s: %w", name, err)
 		}
-
-		relative, err := relativePath(root.Path, entryPath)
-		if err != nil {
-			return fmt.Errorf("resolve command path %s from %s: %w", entryPath, root.Path, err)
+		basename := strings.ReplaceAll(strings.TrimSuffix(relative, path.Ext(relative)), "/", ":")
+		if err := visit(root, name, basename); err != nil {
+			return err
 		}
-		commandName := strings.TrimSuffix(relative, path.Ext(relative))
-		name := strings.ReplaceAll(commandName, "/", ":")
-		*locations = append(*locations, Location{
-			Kind:          root.Kind,
-			DiscoveryPath: entryPath,
-			RealPath:      cleanPath(realPath),
-			Level:         root.Level,
-			Source:        root.Source,
-			Scope:         root.Scope,
-			PluginID:      root.PluginID,
-			PluginAgent:   root.PluginAgent,
-			Names:         rootNames(root, name, ""),
-		})
 	}
 	return nil
 }
@@ -298,7 +363,7 @@ func rootNames(root Root, basename, frontmatterName string) map[Agent]string {
 			if name == "" {
 				name = basename
 			}
-			names[agent] = name
+			names[agent] = scopedName(root.NamePrefix, name)
 		}
 	}
 	return names

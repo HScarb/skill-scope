@@ -6,17 +6,15 @@ import (
 )
 
 func mergeForeignInventory(native agent.Inventory, foreign skill.ScanResult) (agent.Inventory, []skill.ScanRejection) {
-	var locations []skill.Location
-	for _, candidates := range [][]skill.Skill{native.Skills, foreign.Skills} {
-		for _, candidate := range candidates {
-			locations = append(locations, candidate.Locations...)
-		}
-	}
+	candidates := make([]skill.Skill, 0, len(native.Skills)+len(foreign.Skills))
+	candidates = append(candidates, native.Skills...)
+	candidates = append(candidates, foreign.Skills...)
 	merged := agent.Inventory{
 		SkillNames: append([]string(nil), native.SkillNames...),
 		PluginIDs:  append([]string(nil), native.PluginIDs...),
 		Warnings:   append([]string(nil), native.Warnings...),
 	}
-	merged.Skills, merged.Collisions = skill.Build(locations)
+	merged.Warnings = append(merged.Warnings, foreign.Warnings...)
+	merged.Skills, merged.Collisions = skill.Merge(candidates)
 	return merged, append([]skill.ScanRejection(nil), foreign.Rejections...)
 }

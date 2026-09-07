@@ -1,0 +1,12 @@
+→ Skillset [dev] for codex
+  skills: 2 native, 0 projected, 2 unavailable, 1 missing
+           unavailable: ClaudeOnly (目标 agent 不支持投影)
+           unavailable: disabledCodexplugin (所属 Codex plugin 未在 plugins.codex 中允许)
+           missing: absent
+  plugins: 1 allowed, 2 disabled
+  bundled: off
+  warning: reap: old session retained
+  warning: source warning
+  warning: shared canonical path warning
+  collision effective-name: IDs=native,second agent=codex name=shared paths=/a/SKILL.md,/b/SKILL.md
+→ Launching codex

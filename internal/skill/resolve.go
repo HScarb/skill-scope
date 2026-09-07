@@ -91,6 +91,20 @@ func resolveCandidate(target Agent, candidate Skill, opts ResolveOptions, check 
 	}
 	entry := Resolution{ID: candidate.ID, State: StateUnavailable, Reason: ReasonProjectionUnsupported}
 	if !opts.Projection {
+		excluded := make(map[ResolutionReason]bool)
+		for _, loc := range candidate.Locations {
+			reason := projectionIneligible(target, loc)
+			if reason == "" {
+				return entry, nil
+			}
+			excluded[reason] = true
+		}
+		for _, reason := range []ResolutionReason{ReasonPluginDisabled, ReasonPluginOnly, ReasonCommandOnly} {
+			if excluded[reason] {
+				entry.Reason = reason
+				break
+			}
+		}
 		return entry, nil
 	}
 	var rejected, excluded ResolutionReason

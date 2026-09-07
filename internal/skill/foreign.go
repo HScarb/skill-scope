@@ -6,8 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"math"
-	"slices"
-	"strings"
 
 	"github.com/scarb/skope/internal/host"
 )
@@ -19,6 +17,10 @@ type ScanRejection struct {
 }
 
 func (s Scanner) ScanForeignGlobals(env host.Env, maxBytes int64) (ScanResult, error) {
+	return s.ScanForeignRoots(foreignGlobalRoots(env), maxBytes)
+}
+
+func (s Scanner) ScanForeignRoots(roots []Root, maxBytes int64) (ScanResult, error) {
 	if maxBytes <= 0 {
 		return ScanResult{}, errors.New("foreign scan requires a positive byte limit")
 	}
@@ -26,61 +28,55 @@ func (s Scanner) ScanForeignGlobals(env host.Env, maxBytes int64) (ScanResult, e
 		return ScanResult{}, errors.New("foreign scan requires a regular file opener")
 	}
 	var result ScanResult
-	var locations []Location
-	for _, root := range foreignGlobalRoots(env) {
-		entries, err := s.FS.ReadDir(root.Path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return ScanResult{}, fmt.Errorf("read directory %s: %w", root.Path, err)
-		}
-		slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
-		for _, entry := range entries {
-			isSymlink := entry.Type()&fs.ModeSymlink != 0
-			if !entry.IsDir() && !isSymlink {
-				continue
-			}
-			name := joinPath(root.Path, entry.Name(), "SKILL.md")
-			_, err := s.FS.Lstat(name)
-			if errors.Is(err, fs.ErrNotExist) && !isSymlink {
-				continue
-			}
-			if err != nil {
-				return ScanResult{}, fmt.Errorf("lstat %s: %w", name, err)
-			}
+	var candidates []Skill
+	for _, root := range roots {
+		err := s.visitRoot(root, func(root Root, name, basename string) error {
 			info, err := s.FS.Stat(name)
 			if err != nil {
-				return ScanResult{}, fmt.Errorf("stat %s: %w", name, err)
+				return fmt.Errorf("stat %s: %w", name, err)
 			}
 			realPath, err := s.FS.EvalSymlinks(name)
 			if err != nil {
-				return ScanResult{}, fmt.Errorf("resolve %s: %w", name, err)
+				return fmt.Errorf("resolve %s: %w", name, err)
 			}
-			location := Location{Kind: root.Kind, Source: root.Source, Level: root.Level, DiscoveryPath: name, RealPath: cleanPath(realPath)}
+			location := locationFor(root, name, realPath)
 			reason := foreignFileRejection(info, maxBytes)
 			if reason == "" {
 				var contents []byte
 				contents, reason, err = s.readForeignFile(name, maxBytes)
 				if err != nil {
-					return ScanResult{}, err
+					return err
 				}
 				if reason == "" {
-					frontmatter, err := parseFrontmatterName(contents)
-					if err != nil {
-						return ScanResult{}, fmt.Errorf("parse frontmatter %s: %w", name, err)
+					frontmatter := ""
+					if root.Kind == KindSkill {
+						frontmatter, err = parseFrontmatterName(contents)
+						if err != nil {
+							return fmt.Errorf("invalid skill metadata %s", name)
+						}
 					}
 					location.FrontmatterName = frontmatter
-					location.Names = rootNames(root, entry.Name(), frontmatter)
+					location.Names = rootNames(root, basename, frontmatter)
+					if !codexDescriptionValid(contents) {
+						delete(location.Names, AgentCodex)
+					}
 				}
 			}
-			locations = append(locations, location)
+			id := locationID(location)
+			if root.Kind == KindCommand {
+				id = scopedName(root.NamePrefix, scopedName(root.Scope, basename))
+			}
+			candidates = append(candidates, Skill{ID: id, Locations: []Location{location}})
 			if reason != "" {
 				result.Rejections = append(result.Rejections, ScanRejection{Source: root.Source, DiscoveryPath: name, Reason: reason})
 			}
+			return nil
+		})
+		if err != nil {
+			return ScanResult{}, err
 		}
 	}
-	result.Skills, result.Collisions = Build(locations)
+	result.Skills, result.Collisions = Merge(candidates)
 	return result, nil
 }
 
@@ -97,7 +93,7 @@ func foreignFileRejection(info fs.FileInfo, maxBytes int64) ResolutionReason {
 func (s Scanner) readForeignFile(name string, maxBytes int64) (contents []byte, reason ResolutionReason, err error) {
 	file, err := s.RegularFiles.OpenRegular(name)
 	if err != nil {
-		if onlyNotRegular(err) {
+		if onlyError(err, host.ErrNotRegular) {
 			return nil, ReasonSpecialFile, nil
 		}
 		return nil, "", fmt.Errorf("open %s: %w", name, err)
@@ -129,18 +125,18 @@ func (s Scanner) readForeignFile(name string, maxBytes int64) (contents []byte, 
 }
 
 // Preserve I/O failures if an opener joins them with a structural rejection.
-func onlyNotRegular(err error) bool {
-	if !errors.Is(err, host.ErrNotRegular) {
+func onlyError(err, target error) bool {
+	if !errors.Is(err, target) {
 		return false
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, cause := range joined.Unwrap() {
-			if !onlyNotRegular(cause) {
+			if !onlyError(cause, target) {
 				return false
 			}
 		}
 	} else if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return onlyNotRegular(wrapped.Unwrap())
+		return onlyError(wrapped.Unwrap(), target)
 	}
 	return true
 }

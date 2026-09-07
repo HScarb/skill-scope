@@ -1,0 +1,8 @@
+[plugins."alpha@fixture"]
+enabled = true
+
+[plugins."beta@fixture"]
+enabled = false
+
+[plugins."missing@fixture"]
+enabled = true

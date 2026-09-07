@@ -834,17 +834,20 @@ func cloneSessionFiles(source []session.File) []session.File {
 }
 
 func TestServiceChecksConflictsBeforeFactory(t *testing.T) {
-	f := newFixture()
-	want := errors.New("conflicting flag")
-	f.service.CheckConflicts = func(agent skill.Agent, configArgs, userArgs []string) error {
-		if agent != skill.AgentClaude || !reflect.DeepEqual(configArgs, []string{"--config"}) || !reflect.DeepEqual(userArgs, []string{"--request"}) {
-			t.Fatalf("inputs=%s %v %v", agent, configArgs, userArgs)
+	for _, target := range []skill.Agent{skill.AgentClaude, skill.AgentCodex} {
+		f := newFixture()
+		f.fsys.files[f.configPath] = []byte("version=1\n[agents." + string(target) + "]\nargs=['--config']\n")
+		want := errors.New("conflicting flag")
+		f.service.CheckConflicts = func(agent skill.Agent, configArgs, userArgs []string) error {
+			if agent != target || !reflect.DeepEqual(configArgs, []string{"--config"}) || !reflect.DeepEqual(userArgs, []string{"--request"}) {
+				t.Fatalf("inputs=%s %v %v", agent, configArgs, userArgs)
+			}
+			return want
 		}
-		return want
-	}
-	err := f.service.Run(context.Background(), Request{Agent: skill.AgentClaude, SetPresent: true, SetValue: "dev", AgentArgs: []string{"--request"}}, f.reporter)
-	if !errors.Is(err, want) || !reflect.DeepEqual(f.events, []string{"read config.toml", "reap", "lookpath", "read skillsets.toml"}) {
-		t.Fatalf("err=%v events=%v", err, f.events)
+		err := f.service.Run(context.Background(), Request{Agent: target, SetPresent: true, SetValue: "dev", AgentArgs: []string{"--request"}}, f.reporter)
+		if !errors.Is(err, want) || !reflect.DeepEqual(f.events, []string{"read config.toml", "reap", "lookpath", "read skillsets.toml"}) {
+			t.Fatalf("err=%v events=%v", err, f.events)
+		}
 	}
 }
 func TestServiceFactoryReceivesLaunchSelectionCopy(t *testing.T) {

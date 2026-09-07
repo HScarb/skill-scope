@@ -11,6 +11,7 @@ import (
 
 	"github.com/scarb/skope/internal/agent"
 	"github.com/scarb/skope/internal/agent/claude"
+	"github.com/scarb/skope/internal/agent/codex"
 	"github.com/scarb/skope/internal/config"
 	"github.com/scarb/skope/internal/handoff"
 	"github.com/scarb/skope/internal/host"
@@ -123,7 +124,7 @@ func newRootCmd(version string, loadSkillSets listLoader, runLaunch launchRunner
 		SilenceErrors: true,
 	}
 	root.SetUsageTemplate(rootUsageTemplate)
-	root.AddCommand(newLaunchCmd(skill.AgentClaude, runLaunch), newListCmd(loadSkillSets), newVersionCmd(version))
+	root.AddCommand(newLaunchCmd(skill.AgentClaude, runLaunch), newLaunchCmd(skill.AgentCodex, runLaunch), newListCmd(loadSkillSets), newVersionCmd(version))
 	root.InitDefaultHelpCmd()
 	for _, cmd := range root.Commands() {
 		if cmd.Name() == "help" {
@@ -203,11 +204,13 @@ func (d dependencies) runLaunch(ctx context.Context, request launch.Request, rep
 		FS:        fsys,
 		SkopeHome: skopeHome,
 		NewRegistry: func(executable string, selection config.Selection) (launch.AdapterRegistry, error) {
-			adapter := claude.New(scanner, fsys, proc.Runner{}, claude.Options{Executable: executable, Plugins: append([]string(nil), selection.Plugins["claude"]...), Bundled: selection.Bundled})
-			return agent.NewRegistry(adapter)
+			return agent.NewRegistry(
+				claude.New(scanner, fsys, proc.Runner{}, claude.Options{Executable: executable, Plugins: selection.Plugins["claude"], Bundled: selection.Bundled}),
+				codex.New(scanner, codex.NewCatalog(fsys, fsys, scanner), fsys, codex.Options{Plugins: selection.Plugins["codex"], Bundled: selection.Bundled, ResolvePaths: host.ResolveCodexPaths}),
+			)
 		},
 		CheckConflicts: CheckConflicts,
-		Foreign:        scanner,
+		Foreign:        NewForeignScanner(scanner, codex.NewCatalog(fsys, fsys, scanner), host.ResolveCodexPaths),
 		Inspector:      projection.Inspector{OpenRoot: openRoot},
 		Copier:         projection.Copier{OpenRoot: openRoot},
 		Resolver:       host.ExecutableResolver{},

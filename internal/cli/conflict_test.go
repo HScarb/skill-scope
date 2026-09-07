@@ -45,3 +45,12 @@ func TestCheckConflictsRejectsClaudeControlFlagsWithoutValues(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestConflictErrorPreservesClaudeMessage(t *testing.T) {
+	for _, agent := range []skill.Agent{"", skill.AgentClaude} {
+		err := &cli.ConflictError{Agent: agent, Flag: "--settings", Source: "config"}
+		if err.Error() != "Claude isolation conflicts with config argument --settings" {
+			t.Fatal(err)
+		}
+	}
+}

@@ -96,7 +96,7 @@ func reportResolution(writer io.Writer, result launch.Result) error {
 	}
 
 	for _, unavailable := range summary.Unavailable {
-		if _, err := fmt.Fprintf(writer, "           unavailable: %s (%s)\n", termsafe.Escape(unavailable.ID), unavailableReason(unavailable.Reason)); err != nil {
+		if _, err := fmt.Fprintf(writer, "           unavailable: %s (%s)\n", termsafe.Escape(unavailable.ID), unavailableReason(unavailable.Reason, result.Resolved.Agent)); err != nil {
 			return err
 		}
 	}
@@ -105,7 +105,11 @@ func reportResolution(writer io.Writer, result launch.Result) error {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(writer, "  plugins: %d allowed, %d disabled (Claude may enable dependencies of allowed plugins)\n", result.Plugins.Allowed, result.Plugins.Disabled); err != nil {
+	dependencyNote := ""
+	if result.Resolved.Agent == skill.AgentClaude {
+		dependencyNote = " (Claude may enable dependencies of allowed plugins)"
+	}
+	if _, err := fmt.Fprintf(writer, "  plugins: %d allowed, %d disabled%s\n", result.Plugins.Allowed, result.Plugins.Disabled, dependencyNote); err != nil {
 		return err
 	}
 	bundled := "off"
@@ -116,7 +120,7 @@ func reportResolution(writer io.Writer, result launch.Result) error {
 	return err
 }
 
-func unavailableReason(reason skill.ResolutionReason) string {
+func unavailableReason(reason skill.ResolutionReason, target skill.Agent) string {
 	switch reason {
 	case skill.ReasonSpecialFile:
 		return "包含非普通文件"
@@ -125,7 +129,14 @@ func unavailableReason(reason skill.ResolutionReason) string {
 	case skill.ReasonProjectionUnsupported:
 		return "目标 agent 不支持投影"
 	case skill.ReasonPluginDisabled:
-		return "所属 Claude plugin 未在 plugins.claude 中允许"
+		name := string(target)
+		switch target {
+		case skill.AgentClaude:
+			name = "Claude"
+		case skill.AgentCodex:
+			name = "Codex"
+		}
+		return fmt.Sprintf("所属 %s plugin 未在 plugins.%s 中允许", termsafe.Escape(name), termsafe.Escape(string(target)))
 	case skill.ReasonPluginOnly:
 		return "仅存在于其他 agent 的 plugin 中"
 	case skill.ReasonCommandOnly:

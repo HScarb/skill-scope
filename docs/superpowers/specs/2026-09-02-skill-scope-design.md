@@ -42,12 +42,12 @@
 | | Claude Code | Codex CLI | OpenCode |
 |---|---|---|---|
 | 发现目录 | `$CLAUDE_CONFIG_DIR/skills`（缺省 `~/.claude/skills`），项目 `.claude/skills`（含嵌套子目录，名字带作用域如 `apps/web:verify`）、`.claude/commands`、plugin `skills/`、`--add-dir` 目录下的 `.claude/skills`。不扫 `.agents/skills` | `~/.agents/skills`、项目 `.agents/skills`（cwd 向上到仓库根每一级）、项目 `.codex/skills`、`$CODEX_HOME/skills`（已废弃但仍读）、`/etc/codex/skills`、plugin | `.opencode/skill(s)`、`~/.config/opencode/skill(s)`、`~/.opencode`、`OPENCODE_CONFIG_DIR`、兼容 `.claude/skills` 与 `.agents/skills`（全局与项目级）、配置 `skills.paths`（本地目录）、`skills.urls`（远程） |
-| 按名开关 | settings `skillOverrides`（`on`/`off`/`name-only`/`user-invocable-only`，不作用于 plugin skill）、`enabledPlugins`（键为 `plugin@marketplace`）、`disableBundledSkills` | `[[skills.config]]`：`path`（`AbsolutePathBuf`，规则构建时 canonicalize，精确集合匹配）或 `name`（与已加载 skill 名精确比较后折算为路径）+ `enabled`；只从 User 层与 `-c` 覆盖层读取；denylist 语义，无「默认全关」；`skills.bundled.enabled`；`[plugins."id"] enabled` | `permission.skill` 通配 allow/deny/ask，后写规则胜出，原生支持白名单；plugin 无 per-plugin 开关 |
+| 原生开关 | settings `skillOverrides`（`on`/`off`/`name-only`/`user-invocable-only`，不作用于 plugin skill）、`enabledPlugins`（键为 `plugin@marketplace`）、`disableBundledSkills` | `[[skills.config]]`：`path`（`AbsolutePathBuf`，规则构建时 canonicalize，精确集合匹配）或 `name`（与已加载 skill 名精确比较后折算为路径）+ `enabled`；User 规则跨层累积，CLI 精确 path=true 可覆盖；Phase 3 拒绝运行时 profile；逐路径启停，无「默认全关」；`skills.bundled.enabled`；`[plugins."id"] enabled` | `permission.skill` 通配 allow/deny/ask，后写规则胜出，原生支持白名单；plugin 无 per-plugin 开关 |
 | 注入额外 skill 目录 | `--add-dir <dir>`（同时授予文件访问权）或 `--plugin-dir` | 无干净入口；`CODEX_HOME` 会连带重定向 config/auth/sessions | `skills.paths` 或 `OPENCODE_CONFIG_DIR`（追加而非替换） |
 | 会话级注入通道 | `--settings <file>` | `-c key=value`，值按 TOML 解析 | 环境变量 `OPENCODE_CONFIG_CONTENT`（内联 JSON，最后合并）；无 `--config` 参数 |
 | 有效 skill 名 | 目录名，嵌套项目目录带作用域前缀 | frontmatter `name` | frontmatter `name` |
 
-三个 agent 的开关都以 skill 名为键。因此对 agent 已经能看到的 skill，不能「关掉原生 + 注入副本」，只能原生打开；注入只针对该 agent 看不到的 skill。
+Claude/OpenCode 按有效名控制，Codex 0.153.1 按 canonical SKILL.md 路径控制。已原生可见的入口走原生开关；投影只用于目标看不到且支持复制的入口。Codex 本期支持经 Linux 实测的本地目录/cache；认证远端来源的依据与延期责任见 §7.2/§14.5。
 
 ## 4. 数据模型
 
@@ -57,25 +57,29 @@
 |---|---|---|
 | 全局 | `$CLAUDE_CONFIG_DIR/skills/*/SKILL.md`（缺省 `~/.claude/skills`） | Claude、OpenCode |
 | 全局 | `$CLAUDE_CONFIG_DIR/commands/**/*.md`（缺省 `~/.claude/commands`，legacy command） | Claude |
-| 全局 | `~/.agents/skills/*/SKILL.md` | Codex、OpenCode |
-| 全局 | `$CODEX_HOME/skills/*/SKILL.md`（默认 `~/.codex`） | Codex |
+| 全局 | `~/.agents/skills/**/SKILL.md` | Codex、OpenCode |
+| 全局 | `$CODEX_HOME/skills/**/SKILL.md`（默认 `~/.codex`） | Codex |
 | 全局 | `~/.config/opencode/skill(s)/**/SKILL.md`、`~/.opencode/skill(s)/**/SKILL.md`、`$OPENCODE_CONFIG_DIR/skill(s)/**/SKILL.md` | OpenCode |
 | 全局 | OpenCode 配置（§7.3）中 `skills.paths` 列出的目录 | OpenCode |
-| admin | `/etc/codex/skills/*/SKILL.md`（只读扫描） | Codex |
+| admin | `/etc/codex/skills/**/SKILL.md`（只读扫描） | Codex |
 | 项目 | cwd 向上到 git 根的每一级 `.claude/skills`（含嵌套子目录）、`.claude/commands/**` | Claude、OpenCode |
 | 项目 | 同上范围的 `.agents/skills` | Codex、OpenCode |
 | 项目 | 同上范围的 `.codex/skills` | Codex |
 | 项目 | 同上范围的 `.opencode/skill(s)` | OpenCode |
-| plugin | Claude `plugin list --json` 的真实安装项所对应加载根下 `skills/*/SKILL.md`，含 `@skills-dir` 自动 plugin；加载根解析见下。Codex `$CODEX_HOME/plugins` 缓存中的 skill | 各自 agent |
+| plugin | Claude `plugin list --json` 的真实安装项所对应加载根下 `skills/*/SKILL.md`，含 `@skills-dir` 自动 plugin；加载根解析见下。Codex 配置 plugins 键对应 `$CODEX_HOME/plugins/cache/<marketplace>/<name>/<active-version>` 下 manifest 指定的 skill | 各自 agent |
 
 不扫描的来源：OpenCode `skills.urls`（远程），检测到时告警「该来源不受 skope 管理」。
 
 遍历规则：
 
 - 找不到 git 根时只扫 cwd 自身的项目级目录。
-- 递归查找 `.claude`、`.agents` 等目录时跳过 `.git`、`node_modules` 和任意符号链接目录。
-- 允许 `skills/<name>` 条目本身是 symlink 或 Junction，只跟随它检查直接子项 `SKILL.md`，不递归进入链接目标的其他目录。
+- 项目根只沿 cwd 到 git 根逐层枚举，不搜索 sibling/descendant。Claude 保持既有 skill 直子项、command 递归及目录链接边界。
+- Claude 允许 skill 条目 symlink/Junction，只检查直接 SKILL.md。Codex 根内部递归，跳隐藏目录，跟随中间目录及 skill 文件链接；已有 SKILL.md 仍继续向下。以当前递归链的 canonical 目录检测环并停止该分支，不全局丢弃其他 discovery 别名。
 - 目录不存在（ENOENT）是正常情况。已进入的目录出现 EACCES、断链等错误时抛出清单错误。
+
+Codex 根解析由 host 提供独立路径值，不改 host.Env 或 Claude HOME。Unix 使用 env.Home；Windows 使用 `windows.KnownFolderPath(&windows.FOLDERID_Profile, 0)`，HOME/USERPROFILE 不等价。该 home 同时用于全局 `.agents/skills` 与缺省 `.codex`；显式非空 CODEX_HOME 保留原始空白并须为绝对目录；纯空白值不等同缺省。Codex 平台 home 与 CODEX_HOME 均拒绝含 `..` 路径段，避免符号链接解析前的字面 Clean 改变实际来源；尾空格目录按原值扫描。Unix 系统配置 `/etc/codex/config.toml` 与 skill 根 `/etc/codex/skills` 可注入；Windows 无这两个 Unix 来源。仅 active inventory/目标为 Claude 的 foreign 扫描调用 resolver，构造/help/none 不读取 agent 元数据。
+
+Codex 收集 system、User `CODEX_HOME/config.toml`、cwd 到 git 根的每级 `.codex/config.toml` 的 plugins 键并集；项目不可信时也保守收集潜在键，不修改信任、不复刻模型/MCP 合并。运行时 `-p/--profile` 拒绝；旧 `config.profile` 在 0.153.1 不支持，存在则报 unsupported-source。bundled 的 `CODEX_HOME/skills/.system` 不进入普通 inventory 或 foreign projection；不承诺 bundled=true 强制恢复用户单项禁用的内置 skill。
 
 Claude plugin 枚举依据为 2.1.259 的真实实验（`docs/verification.md` 第 10 条）：
 
@@ -124,14 +128,16 @@ type Location struct {
 - **ID**：`SKILL.md` 所在目录的 basename；嵌套项目目录下为 `<scope>:<basename>`（如 `apps/web:verify`），与 Claude 的作用域命名一致。legacy command 的 ID 是文件名去掉 `.md`，子目录用 `:` 表达命名空间。
 - **同 ID 合并**：同一 ID 的多个发现入口视为同一逻辑 skill 的多个 location。command 与 skill 同 ID 也合并，`Kind` 由各 location 携带。
 - **不按 realpath 去重**：Junction 把同一目录同时挂到 `.claude/skills/foo` 和 `.agents/skills/foo` 时，两个入口都保留，否则启动 Codex 时会误判 unavailable。`RealPath` 相同的入口在 `skope skills` 中标注「同一目标」。
-- **有效名**：`Names[claude]` = 目录名加作用域前缀；`Names[codex]`、`Names[opencode]` = `FrontmatterName`，缺失时回退目录名。只为该入口可见的 agent 填写。
+- **有效名**：`Names[claude]` = 目录名加作用域前缀；`Names[opencode]` = `FrontmatterName`，缺失时回退目录名；Codex 只有合法 frontmatter 且 description 为非空字符串才可见，name 缺失回退 basename，manifest.name namespace 加前缀。普通 Codex 根 manifest 不产生 PluginID。只为真实可见的 agent 填写。
 - **frontmatter 解析**：`SKILL.md` 第一行不是 `---` 时视为没有 frontmatter；合法 frontmatter 没有 `name` 时 `FrontmatterName` 为空。第一行是 `---` 但 YAML 非法、缺少结束分隔符或 `name` 不是字符串时 fail-closed，错误必须包含该 `SKILL.md` 的 `DiscoveryPath`。选择 fail-closed，因为 Codex/OpenCode 的有效名依赖该字段，静默回退会让白名单命中错误对象。
-- **选择语义**：skill set 选中一个 ID，即在每个 agent 上开启该 ID 全部符合 §4.4 条件的可见 location 有效名；plugin 仍需独立允许。不提供按路径限定选择的语法。
+- **选择语义**：skill set 选中一个 ID，即按 §7.4 开启该 ID 全部符合 §4.4 条件的可见 location（Claude/OpenCode 按有效名，Codex 按路径）；plugin 仍需独立允许。不提供按路径限定选择的语法。
 - **碰撞告警**（`skope skills` 与启动摘要均报告）：
   - 同 ID 多入口且 `RealPath` 不同：内容可能不一致。
   - `FrontmatterName` 与目录名不一致。
-  - 不同 ID 在同一 agent 上有效名相同（如根级 `verify` 与 `apps/web:verify` 在 OpenCode 中都叫 `verify`）：允许其一即允许两者，agent 自身按其规则取其一。
-- **Location 优先级**：层级按 `project > global > admin > plugin`；同级按 `claude > agents > codex > opencode > opencode-paths`。admin `/etc/codex` 低于用户全局配置，但仍是 agent 原生入口，优先于不可跨 agent 投影的 plugin。若 Phase 3 的真实 Codex 验证推翻该顺序，必须先修订本文档再调整实现。
+  - 不同 ID 在同一 agent 上有效名相同（如根级 `verify` 与 `apps/web:verify` 在 OpenCode 中都叫 `verify`）：Claude/OpenCode 按名允许其一即允许两者；Codex 同名不同路径可独立控制，只报告同名事实。Codex 不同 ID 共享 canonical 路径时 OR 允许并告警，无法按 discovery 别名隔离。
+- **Location 优先级**：层级按 `project > global > admin > plugin`；同级按 `claude > agents > codex > opencode > opencode-paths`。admin `/etc/codex` 低于用户全局配置，但仍是 agent 原生入口，优先于不可跨 agent 投影的 plugin。该顺序是 skope 投影候选优先级，不模拟 Codex 自身的加载覆盖顺序。
+
+Codex 原生发现的无 frontmatter、缺失/空/非字符串 description 选择保守 fail-closed，报告 discovery path 与静态字段类别；这是 skope 设计选择，真实 Codex 会报错跳过。foreign 读取不以 Codex 必填字段拒绝 Claude 可投影内容：合法 YAML 缺 description 或无 frontmatter 保留 Location，仅不填 Names[Codex]；非法 YAML/错误字段类型仍遵守既有 fail-closed。description 只在读取时临时校验，不扩展冻结 Location。Phase 2 仅有 name 的 Claude 投影 fixture 保持可用，纠正旧测试中不真实的 Codex 可见性断言。
 
 ### 4.4 可见性与投影判定
 
@@ -257,8 +263,12 @@ skope version
 活动 skill set 下，对「`config.toml` 的 `args` + 用户透传参数」的并集做检测，命中即拒绝启动，报错只打印参数名和来源（配置或命令行），不打印参数值：
 
 - Claude：`--settings`、`--setting-sources`、`--plugin-dir`、`--plugin-url`、`--add-dir`（含 `--flag=value` 形式）
-- Codex：`-c`/`--config` 的键以 `skills.` 或 `plugins.` 开头
+- Codex：拒绝 `skills`/`plugins` 父表及子树，`features` 父表及 `features.remote_plugin` 子树，cwd/profile 与来源扩展参数；具体语法如下。
 - OpenCode：无 CLI 冲突参数
+
+Codex 将配置 args 与用户 args 拼接后按 token 保留来源，支持 `-c value`、`-c=value`、`-cvalue`、`--config value`、`--config=value`；配置末尾 `-c` 可取用户首 token 为值，错误报告 flag 来源和（若不同）值来源但不显示值。按第一个 `=` 分 key/value，key 仅整体 trim 后按 Codex 实际 dot splitting 分段，段内空白保持原样，不把 CLI key 当 TOML quoted key 解码；`plugins."id".enabled` 的引号是字面字符，父 plugins 仍受保护。无值/空值报静态参数错误。
+
+拒绝 `-C`/`--cd`、`-p`/`--profile`（分离、等号及短旗附着形式），以及透传中独立 `--`；skope 自己消费的第一个分隔符不算。拒绝 `--enable`/`--disable` 的 remote_plugin 值（含等号形式），允许其他 feature/model 参数。`-c` 的 `profile`、`profiles`、`project_root_markers`、`marketplaces` 父键/子树同样拒绝。固定 0.153.1 schema 的 project_root_markers 可改变祖先配置搜索边界，配置只允许缺省或精确 [".git"]，其余 unsupported-source；marketplaces 是配置/缓存更新来源，不当作 installed 事实。CODEX_HOME 是环境入口，由 host 解析；不存在的 codex_home 等 CLI 配置键不列为实际来源能力。
 
 `-s none` 下不做此检查。
 
@@ -357,11 +367,19 @@ Capabilities 取值：
 
 | 步骤 | 内容 |
 |---|---|
-| Inventory | 扫描 Codex 可见目录；读 `$CODEX_HOME/config.toml` 的 `[plugins.*]` 键与 `$CODEX_HOME/plugins` 缓存目录得到 plugin 全集 |
-| ControlArgs | `-c 'skills.config=[{path="<abs SKILL.md>",enabled=false},...]'` 列出全集中不在白名单的每个入口；`path` 为绝对路径，skope 先自行 canonicalize 再写入，以匹配 Codex 的 canonicalize 行为；`-c skills.bundled.enabled=<bool>`；对全集中每个不在允许集合的 plugin 写 `-c 'plugins."<id>".enabled=false'` |
+| Inventory | 扫描 Codex 可见目录；收集 User、system、祖先项目配置层的 plugins 键（运行时 profile 活动拒绝），按已验证本地 cache 活动目录得到 plugin skill 路径；不能虚构独立安装索引，也不能使用 plugin/installed.localVersion 选活动版本 |
+| ControlArgs | `-c 'skills.config=[{path="<allowed abs SKILL.md>",enabled=true},{path="<blocked abs SKILL.md>",enabled=false},...]'` 对普通与本地 plugin skill 全集逐路径显式设置；普通选中项与允许 plugin 的全部路径写 true，其余写 false；`path` 为绝对 SKILL.md 文件路径，skope 先自行 canonicalize 再写入；`-c skills.bundled.enabled=<bool>`；用单个 `-c 'plugins={"<id>"={enabled=true},"<other>"={enabled=false}}'` 对 plugin 全集写显式布尔值；不得使用会保留字面引号的 quoted dotted-key 形式；最后追加 `-c features.remote_plugin=false` |
 | 投影 | 不支持。白名单里 Codex 看不到的 ID 记为 unavailable |
 
-用 `path` 而不用 `name`，避免同名不同目录被一起关闭。Codex 是 denylist 语义，skope 通过「枚举全集再逐条关闭」模拟白名单。扫描到启动之间新增的 skill 存在竞态。
+用 `path` 而不用 `name`，避免同名不同目录被一起关闭。Codex 没有默认全关，skope 枚举普通与本地 plugin skill 的 canonical 路径全集。普通路径按选中的 ID、plugin 路径按整个 plugin 的允许状态显式写 true/false；plugin 总开关仍控制整体。共享 canonical 目标只写一项，任一来源允许则写 true 并告警。system 路径不混入该数组；bundled=true 只允许 system 来源，保留用户单项 deny。扫描到启动之间新增的 skill 存在竞态。
+
+Codex CLI 0.153.1 的真实验证证明：User 层 path/name 禁用规则不会被 CLI 空数组或仅包含其他路径的新数组清除；CLI 精确 path=true 能重新启用选中路径，其他同名路径仍受原禁用规则约束。同一路径重复规则最后一项生效，所以 skope 必须去重。即使普通全集为空也输出 skills.config=[]，但不能声称该空数组清除了用户禁用项。项目配置的 skills.config 虽进入有效配置，skills/list 不采用该层的 skill 规则。完整对照见 docs/verification.md 第 1、9 条。
+
+Codex 0.153.1 本地发现补充（2026-09-06，docs/verification.md 第 6、9 条）：项目 `.agents/skills` 与 `.codex/skills` 均沿 cwd 至 git 根逐层读取，无 git 根则只读 cwd；不遍历仓库 sibling/descendant。每个 skills 根内部递归、跳隐藏目录、跟随链接并按 canonical 文件去重，已有 SKILL.md 的目录仍向内递归。缺 name 时用 basename；缺 description 或 frontmatter 的文件由 Codex 报错跳过。普通根里的 `.codex-plugin/plugin.json` 仅提供 manifest.name namespace，pluginId=null，不能误归入可用 plugins 开关控制的自动 plugin。
+
+本地 plugin ID 形如 name@marketplace；安装写 config.toml 与 plugins/cache/<marketplace>/<name>/<version>，本次没有独立安装索引。活动目录 local 优先；双方版本为 semver 时用 Rust Version 比较（含 build metadata），否则字符串比较。活动目录缺 manifest 不回退旧版。可见技能使用活动 cache 的 `.codex-plugin/plugin.json`，默认 skills/ 或实测字符串 skills="./custom"。单纯 marketplace 候选、仅配置键、删除配置后的残留 cache 不等于当前可加载 plugin。允许的 plugin 路径须写 true，才能覆盖 User 的 path/name 单项 deny。
+
+远端来源尚未完成认证实测。固定版本源码显示 remote_plugin 默认开启，账户远端配置可替换本地 enabled；真实 features list 已验证 features.remote_plugin=false 可设且本地 plugin 继续加载。本期设计限定本地目录/cache，并在 active 强制 `features.remote_plugin=false`，none 保持透传；这是基于固定源码选择的控制措施，不声称认证远端闭环已实测，也不支持允许账户远端 plugin。远端枚举与允许能力由 §14.5 接续。配置键加有效 cache 才记 installed；disabled 有效 cache 仍 installed，marketplace 消失不改变它。允许但无有效 cache 的 ID 仍写 true 并告警 missing，不安装，也不承诺未来自动安装能覆盖既有 name deny。Plan 不改 CODEX_HOME、源配置或安装状态；Files/Env 为空。
 
 ### 7.3 OpenCode
 
@@ -378,7 +396,7 @@ Capabilities 取值：
 
 ### 7.4 有效名与全集的映射
 
-各 adapter 的白名单和 denylist 都使用 `Location.Names[agent]`，而不是 ID。同一 ID 的多个可见 location 的有效名全部进入允许集合。
+Claude/OpenCode 将选中 ID 映射到全部可见 `Location.Names[agent]`。Codex 用选中 native ID 回查全部普通 Codex location，重新 canonicalize DiscoveryPath 并与扫描 RealPath 比对；plugin location 按 PluginID 允许状态决定，允许 plugin 的全部路径均写 true，不要求技能 ID 被选中。全部 canonical 路径 OR 合并并显式写 true/false；同名异路径不合并，same-canonical 别名允许优先并告警。
 
 Claude plugin location 需先通过 `plugins.claude` 允许条件；`skills=["check"]` 不隐式打开 `some-plugin@marketplace`。只存在于未允许 plugin 的 ID 为 unavailable；同 ID 的普通 native 可继续使用。允许 plugin 会暴露它的全部 skills，不宣称实现插件内部逐 skill 隔离。
 
@@ -487,6 +505,10 @@ Windows 上正常退出立即清理；崩溃残留由回收兜底。Windows 不�
 | 扫描 ENOENT | 跳过 | 沿用 agent |
 | 扫描 EACCES 等其他 I/O 错误 | fail-closed | 1 |
 | `SKILL.md` frontmatter 已起始但 YAML 非法、缺结束分隔符或 `name` 非字符串 | fail-closed，报错含 `SKILL.md` discovery path | 1 |
+| Codex 配置语法/受管字段、manifest/cache 活动目录不完整或不支持来源 | fail-closed；类型化错误只显示 Path、静态 Field/类别，不输出 TOML/JSON 原值；none 旁路 | 1 |
+| Codex 原生 SKILL.md 缺 frontmatter/description 或 description 非法 | fail-closed，报 discovery path；foreign 合法但 Codex 不可见入口仍可供 Claude 投影 | 1 |
+| Codex canonicalize 失败或扫描后链接改向 | fail-closed，不发布控制方案；若已 staging 则按生命周期清理 | 1 |
+| Codex 版本候选无法确定唯一最高项、活动目录缺 manifest | fail-closed，不猜排序或回退旧缓存 | 1 |
 | OpenCode 配置文件存在但解析失败 | fail-closed | 1 |
 | 已有 `OPENCODE_CONFIG_CONTENT` 非法 JSON | fail-closed | 1 |
 | `claude plugin list` 失败、超时、超限或 JSON 非法 | fail-closed | 1 |
@@ -715,9 +737,9 @@ Phase 3 与 Phase 4 互不依赖，可并行。
 范围：
 
 - 复用 Phase 2 已提前启用的 `~/.agents/skills`、`$CODEX_HOME/skills` 全局行，补齐其余 Codex 行（项目 `.agents/skills`、`.codex/skills`、`/etc/codex/skills`、plugin 缓存）。
-- `internal/agent/codex`：`$CODEX_HOME/config.toml` 的 `[plugins.*]` 与缓存目录组成 plugin 全集；`-c skills.config` denylist（canonicalize 后的绝对 `SKILL.md` 路径）；`skills.bundled.enabled`；plugin 关闭参数。
-- 启用 Codex 目标的跨 agent 可见性：`Capabilities.Projection = false` 对应的 `unavailable` 分支与原因文案；§5.3 `plugins.codex` 生效。Claude 目标的外来投影已在 Phase 2 启用。
-- §6.2 冲突参数检测（Codex `-c skills.*`/`plugins.*`，含 `-c=...` 取值形式）。
+- `internal/agent/codex`：按 §7.2 的 0.153.1 本地配置层/cache 建全集；canonical 普通和 plugin 路径显式 true/false、bundled、单个 plugins inline table、remote_plugin=false；User deny 不用空数组清除。运行时 profile 与未支持来源拒绝。
+- 启用 Codex 目标的跨 agent 可见性：`Capabilities.Projection = false` 对应的 `unavailable` 分支与原因文案；§5.3 `plugins.codex` 生效。Claude 目标补齐 Codex 普通项目/admin/递归根，可投影合格项；cache plugin 身份只供 unavailable，不复制 plugin 或 bundled。Codex 目标只枚举 Claude 普通 skill/command，不依赖 Claude executable。
+- §6.2 完整参数冲突保护与跨来源取值；Windows Known Folder 路径注入测试，生产 active 二进制测试不能靠 HOME 隔离，进入扫描前跳过并记录。
 
 退出标准：golden file 断言 `-c` 参数序列；fake agent 集成测试；真实 Codex 手工验证 denylist 生效与 symlink 入口 canonicalize 匹配。
 
@@ -744,6 +766,9 @@ Phase 3 与 Phase 4 互不依赖，可并行。
 - §5.4 CAS 原子写与有序序列化。
 - §6.5 `create`/`edit`/`delete` 向导；`internal/wizard` 编排逻辑与 huh 组件分离（§12）。
 - §6.4 `skills`（含 `--agent`、碰撞告警）；`internal/doctor` 与 `doctor` 命令（含 conhost 提示）。
+
+- 非目标 Claude plugin 的完整候选枚举，不把本期未接入来源误称已覆盖；Phase 3 missing 只指已接入来源中无记录。
+- Codex 账户远端 plugin 的枚举、认证配置覆盖、允许/禁止闭环及 `.codex-remote-plugin-install.json` 契约：先独立真实门禁，更新 §7.2 后再解除 Phase 3 remote_plugin=false 限定；保留全来源总目标，不能把本地测试当作完成证据。
 
 退出标准：§6.4 契约表每一行的行为、非 TTY 行为与退出码均有测试；向导编排逻辑单测覆盖。
 

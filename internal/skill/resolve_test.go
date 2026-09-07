@@ -301,3 +301,43 @@ func cloneSkillInventory(inventory []skill.Skill) []skill.Skill {
 	}
 	return cloned
 }
+
+func TestResolveCodexWithoutProjection(t *testing.T) {
+	t.Parallel()
+	native := skill.Location{Kind: skill.KindSkill, Names: map[skill.Agent]string{skill.AgentCodex: "native"}}
+	foreign := skill.Location{Kind: skill.KindSkill, Names: map[skill.Agent]string{skill.AgentClaude: "foreign"}}
+	plugin := skill.Location{Kind: skill.KindSkill, Level: skill.LevelPlugin, PluginID: "p@m", PluginAgent: skill.AgentCodex, Names: map[skill.Agent]string{skill.AgentCodex: "plugin"}}
+	other := plugin
+	other.PluginAgent = skill.AgentClaude
+	command := skill.Location{Kind: skill.KindCommand}
+	for _, tt := range []struct {
+		name      string
+		locations []skill.Location
+		allowed   []string
+		state     skill.ResolutionState
+		reason    skill.ResolutionReason
+		names     []string
+	}{
+		{"native wins", []skill.Location{foreign, other, plugin, native, native}, nil, skill.StateNative, "", []string{"native"}},
+		{"allowed plugin", []skill.Location{plugin}, []string{"p@m"}, skill.StateNative, "", []string{"plugin"}},
+		{"native names summary", []skill.Location{native, native, plugin}, []string{"p@m"}, skill.StateNative, "", []string{"native", "plugin"}},
+		{"disabled plugin", []skill.Location{plugin}, nil, skill.StateUnavailable, skill.ReasonPluginDisabled, nil},
+		{"other plugin even allowed", []skill.Location{other}, []string{"p@m"}, skill.StateUnavailable, skill.ReasonPluginOnly, nil},
+		{"command", []skill.Location{command}, nil, skill.StateUnavailable, skill.ReasonCommandOnly, nil},
+		{"ordinary foreign", []skill.Location{foreign}, nil, skill.StateUnavailable, skill.ReasonProjectionUnsupported, nil},
+		{"foreign with exclusions", []skill.Location{command, other, plugin, foreign}, nil, skill.StateUnavailable, skill.ReasonProjectionUnsupported, nil},
+		{"target exclusion priority", []skill.Location{command, other, plugin}, nil, skill.StateUnavailable, skill.ReasonPluginDisabled, nil},
+		{"other exclusion priority", []skill.Location{command, other}, nil, skill.StateUnavailable, skill.ReasonPluginOnly, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := skill.Resolve(skill.AgentCodex, []string{"selected", "missing", "selected"}, []skill.Skill{{ID: "selected", Locations: tt.locations}}, skill.ResolveOptions{AllowedPlugins: tt.allowed}, func(skill.Location) (skill.ResolutionReason, error) { panic("Projection=false must not check") })
+			want := skill.Resolved{Agent: skill.AgentCodex, Entries: []skill.Resolution{{ID: "selected", State: tt.state, Reason: tt.reason, Names: tt.names}, {ID: "missing", State: skill.StateMissing}}}
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("resolved=%#v err=%v want=%#v", got, err, want)
+			}
+			if got.Count(tt.state) != 1 || got.Count(skill.StateMissing) != 1 || got.Count(skill.StateProjected) != 0 {
+				t.Fatalf("counts must follow selected IDs: %#v", got)
+			}
+		})
+	}
+}
