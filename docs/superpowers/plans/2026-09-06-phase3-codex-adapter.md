@@ -1031,7 +1031,7 @@ git status --short
 - 重新绑定 `SKOPE_EXE=/var/tmp/skope-phase3-build-Ojbcft/skope`，version/vcs=ed39e41fab769d30fb5654c11aef189cb748e9be、modified=false；SHA-256 7ded09b187d656854b6f88894bf789fa51afc3a420744d5338afda67f6a7dcd3。真实 Codex 0.153.1 的扩展 23 case 全通过，21 个配置/来源文件字节和固定旧 mtime 不变，最终 session=0；初次修复 fixture `/var/tmp/skope-phase3-acceptance-mndx7ya1`；harness 异常清理补强后同一 ed39e41 产品产物完整复验，最终 fixture 为 `/var/tmp/skope-phase3-acceptance-6y1jpted`。
 - 完整 harness 已提交，/proc 同 PID 的真实 exe/argv 与 prompt 加载记录均可复核；无认证、无模型调用，全部在私有 user/mount/net namespace。README 和 docs/verification.md 已记录本地支持边界、CODEX_HOME 修复和两次 Known Folder 意外来源发现的处置。
 - 最终全局代码审查、Task 13 Spec/质量审查及两项 Important 的针对性复审全部通过。README 已修正 plugin 不可投影的说明；29fbe9a 对验收 harness 增加独立进程组异常清理，四项受控回归和正常真实 23 case 均通过，审查确认无开放问题。
-- [CI 34033746778](https://github.com/HScarb/skill-scope/actions/runs/34033746778) 的 HEAD=29fbe9a77430f16d68b4a34457331eceda1e1c6c，Ubuntu/macOS race、active 非 skip 断言、Windows test/build 与 lint 全绿。Task 12 Step 1、Task 13 全部关闭，Phase 3 complete；PR 保持 draft，worktree、最终 clone/产品/fixture 留供用户审阅。
+- [CI 34033746778](https://github.com/HScarb/skill-scope/actions/runs/34033746778) 的 HEAD=29fbe9a77430f16d68b4a34457331eceda1e1c6c，Ubuntu/macOS race、active 非 skip 断言、Windows test/build 与 lint 全绿。Task 12 Step 1、Task 13 全部关闭，Phase 3 complete；PR #3 已于 2026-09-07 转为正式 PR 并合入 `main`，合并提交为 `6dad3e6e1ccf6f81b1c902a61d9638c15b8a293c`。
 
 ## 验收对应表
 

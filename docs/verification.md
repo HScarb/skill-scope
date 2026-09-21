@@ -505,4 +505,4 @@ Task 1 Windows 真 Codex 实验和 Task 11 旧 TestProductionLaunchProjectsDisco
 
 Task 13 质量复审发现验收 harness 的超时/观测异常会遗留子进程。脚本已改用独立 session/process group，在异常时无条件 killpg 后 communicate 回收并保留原异常，包含父进程先退出、后代仍持管道的情况。新增标准库受控回归先在旧实现中复现超时/观测异常后父进程仍活；修后四个场景全部通过，父进程与后代均无残留。正常真实 Codex 23 case 也完整复跑通过，证据 `/var/tmp/skope-phase3-acceptance-6y1jpted`，仍使用上文 `ed39e41` 产品产物和同一 SHA-256；本次只修改验收 harness，没有将产品产物冒称为后续 harness 提交。21 文件字节/旧 mtime 不变，最终 session=0；代码语法与 diff 检查通过。独立质量复审已再次运行四项受控测试并核对 23 case、SHA 和 CI，确认 Important 清除。Task 13 Spec/质量及全局代码审查全部通过。
 
-最终 harness 提交 `29fbe9a77430f16d68b4a34457331eceda1e1c6c` 的 [CI 34033746778](https://github.com/HScarb/skill-scope/actions/runs/34033746778) 四个 job 全部成功，包含 Ubuntu/macOS active testcase 必须 pass 且非 skip 的检查。后续收口仅更新完成状态与交付文档，产品和已验收 harness 不变；PR #3 保持 draft，保留 worktree、独立 clone、绑定产品和最终 fixture 供审阅。
+最终 harness 提交 `29fbe9a77430f16d68b4a34457331eceda1e1c6c` 的 [CI 34033746778](https://github.com/HScarb/skill-scope/actions/runs/34033746778) 四个 job 全部成功，包含 Ubuntu/macOS active testcase 必须 pass 且非 skip 的检查。后续收口仅更新完成状态与交付文档，产品和已验收 harness 不变；PR #3 已于 2026-09-07 转为正式 PR 并合入 `main`，合并提交为 `6dad3e6e1ccf6f81b1c902a61d9638c15b8a293c`。
